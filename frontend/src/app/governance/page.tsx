@@ -210,6 +210,8 @@ export default function GovernancePage() {
   async function handleRefresh() {
     setRefreshing(true);
     try {
+      // Sync governance data from pipeline results, then reload
+      await governance.sync();
       const data = await governance.health();
       setHealth(data);
       // Clear cached tab data so it reloads

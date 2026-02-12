@@ -660,6 +660,7 @@ export interface RAGFeedbackItem {
 
 export const governance = {
   health: () => fetchAPI<GovernanceHealth>("/governance/health"),
+  sync: () => fetchAPI<{ status: string }>("/governance/sync", { method: "POST" }),
 
   // TAO
   trustProfiles: () =>

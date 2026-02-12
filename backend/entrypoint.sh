@@ -163,6 +163,40 @@ asyncio.run(run_pipeline())
     PIPELINE_PID=$!
 } || echo "  ✓ Pipeline already run"
 
-# 5. Start the application
-echo "[5/5] Starting uvicorn..."
+# 5. Seed governance tables from pipeline data (if pipeline has run)
+echo "[5/6] Seeding governance data from pipeline results..."
+python -c "
+import asyncio
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from app.config import settings
+from app.models.scoring import RiskScore
+from app.tao.models import AgentTrustProfile
+
+async def check():
+    engine = create_async_engine(settings.database_url)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    async with Session() as session:
+        scores = (await session.execute(select(func.count()).select_from(RiskScore))).scalar()
+        profiles = (await session.execute(select(func.count()).select_from(AgentTrustProfile))).scalar()
+    await engine.dispose()
+    return scores, profiles
+
+scores, profiles = asyncio.run(check())
+if scores > 0 and profiles == 0:
+    print(f'  {scores} scores found, 0 governance profiles — seeding...')
+    exit(0)
+elif scores == 0:
+    print('  No pipeline data yet — skipping governance seed')
+    exit(1)
+else:
+    print(f'  Governance already seeded ({profiles} trust profiles)')
+    exit(1)
+" && {
+    python -m app.seed.governance_data
+    echo "  ✓ Governance data seeded"
+} || echo "  ✓ Governance seed skipped"
+
+# 6. Start the application
+echo "[6/6] Starting uvicorn..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2

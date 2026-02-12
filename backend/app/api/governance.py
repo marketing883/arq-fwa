@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require
@@ -441,4 +441,95 @@ async def list_feedback(
             }
             for f in result.scalars()
         ]
+    }
+
+
+# ── Sync / Refresh ─────────────────────────────────────────────────────────
+
+@router.post("/sync")
+async def sync_governance(
+    ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-generate governance data from current pipeline results.
+
+    Truncates existing governance tables and rebuilds from actual
+    risk_scores, rule_results, investigation_cases, and pipeline_runs.
+    """
+    from app.seed.governance_data import (
+        GOVERNANCE_TABLES, load_pipeline_data, build_trust_profiles,
+        build_capability_tokens, build_lineage_nodes, build_lineage_edges,
+        build_hitl_requests, build_audit_receipts, build_compliance_ir_records,
+        build_evidence_packets, build_rag_signals, build_adaptation_events,
+        build_rag_feedback, insert_batch, SEED,
+    )
+    import random
+
+    rng = random.Random(SEED)
+
+    # Check pipeline data exists
+    from app.models import RiskScore
+    score_count = (await db.execute(
+        select(func.count()).select_from(RiskScore)
+    )).scalar() or 0
+    if score_count == 0:
+        return {"status": "skipped", "reason": "No pipeline data. Run the pipeline first."}
+
+    # Truncate governance tables
+    for t in GOVERNANCE_TABLES:
+        await db.execute(text(f"TRUNCATE TABLE {t} CASCADE"))
+    await db.flush()
+
+    # Rebuild from pipeline data
+    data = await load_pipeline_data(db)
+
+    profiles = build_trust_profiles(rng, data)
+    await insert_batch(db, AgentTrustProfile, profiles, "trust profiles")
+
+    tokens = build_capability_tokens(rng, data)
+    await insert_batch(db, CapabilityToken, tokens, "capability tokens")
+
+    nodes = build_lineage_nodes(rng, data, tokens)
+    await insert_batch(db, LineageNode, nodes, "lineage nodes")
+    edges = build_lineage_edges(nodes)
+    await insert_batch(db, LineageEdge, edges, "lineage edges")
+
+    hitls = build_hitl_requests(rng, data)
+    await insert_batch(db, HITLRequest, hitls, "HITL requests")
+
+    receipts = build_audit_receipts(rng, data, nodes, tokens, hitls)
+    await insert_batch(db, AuditReceipt, receipts, "audit receipts")
+
+    ir_records = build_compliance_ir_records(rng, data)
+    await insert_batch(db, ComplianceIRRecord, ir_records, "compliance IR records")
+    packets = build_evidence_packets(rng, data, ir_records)
+    await insert_batch(db, EvidencePacket, packets, "evidence packets")
+
+    signals = build_rag_signals(rng, data)
+    await insert_batch(db, RAGSignal, signals, "RAG signals")
+    adaptations = build_adaptation_events(rng, data, signals)
+    await insert_batch(db, AdaptationEvent, adaptations, "adaptation events")
+    fb = build_rag_feedback(rng, data)
+    await insert_batch(db, RAGFeedback, fb, "RAG feedback")
+
+    return {
+        "status": "synced",
+        "from_scores": score_count,
+        "tao": {
+            "trust_profiles": len(profiles),
+            "tokens": len(tokens),
+            "lineage_nodes": len(nodes),
+            "lineage_edges": len(edges),
+            "hitl_requests": len(hitls),
+            "audit_receipts": len(receipts),
+        },
+        "capc": {
+            "ir_records": len(ir_records),
+            "evidence_packets": len(packets),
+        },
+        "oda_rag": {
+            "signals": len(signals),
+            "adaptations": len(adaptations),
+            "feedback": len(fb),
+        },
     }
