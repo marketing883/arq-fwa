@@ -760,7 +760,11 @@ function TAOTab({
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-600 text-xs max-w-xs truncate">
-                        {r.output_summary || "\u2014"}
+                        {r.output_summary
+                          ? typeof r.output_summary === "string"
+                            ? r.output_summary
+                            : JSON.stringify(r.output_summary)
+                          : "\u2014"}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {formatDateTime(r.timestamp)}

@@ -599,7 +599,7 @@ export interface AuditReceiptItem {
   action_risk_score: number | null;
   lineage_node_id: string | null;
   capability_token_id: string | null;
-  output_summary: string | null;
+  output_summary: Record<string, unknown> | string | null;
 }
 
 export interface EvidencePacketSummary {
