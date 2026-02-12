@@ -15,7 +15,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.config import settings
 from app.models.chat import ChatSession, ChatMessage
 from app.models import Workspace
@@ -116,11 +118,12 @@ async def agent_status():
 @router.post("/investigate", response_model=InvestigateResponse)
 async def investigate_case(
     body: InvestigateRequest,
+    ctx: RequestContext = Depends(require(Permission.AGENT_INVESTIGATE)),
     db: AsyncSession = Depends(get_db),
 ) -> InvestigateResponse:
     """AI agent investigates a case and produces a structured analysis."""
     try:
-        ws_id = await _resolve_workspace(db, body.workspace_id)
+        ws_id = await _resolve_workspace(db, body.workspace_id) if body.workspace_id else ctx.workspace_id
         agent = AgentService(db, workspace_id=ws_id)
         result = await agent.investigate_case(body.case_id)
 
@@ -142,11 +145,12 @@ async def investigate_case(
 @router.post("/chat", response_model=ChatResponseSchema)
 async def agent_chat(
     body: ChatRequest,
+    ctx: RequestContext = Depends(require(Permission.AGENT_CHAT)),
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponseSchema:
     """Interactive chat with the investigation assistant."""
     try:
-        ws_id = await _resolve_workspace(db, body.workspace_id)
+        ws_id = await _resolve_workspace(db, body.workspace_id) if body.workspace_id else ctx.workspace_id
         agent = AgentService(db, workspace_id=ws_id)
         result = await agent.chat(body.message, body.case_id, body.session_id)
 
@@ -191,10 +195,11 @@ async def agent_chat(
 @router.post("/chat/stream")
 async def agent_chat_stream(
     body: ChatRequest,
+    ctx: RequestContext = Depends(require(Permission.AGENT_CHAT)),
     db: AsyncSession = Depends(get_db),
 ):
     """Stream chat responses token-by-token via SSE."""
-    ws_id = await _resolve_workspace(db, body.workspace_id)
+    ws_id = await _resolve_workspace(db, body.workspace_id) if body.workspace_id else ctx.workspace_id
     agent = AgentService(db, workspace_id=ws_id)
 
     async def generate():
@@ -208,6 +213,7 @@ async def agent_chat_stream(
 
 @router.get("/sessions")
 async def list_sessions(
+    ctx: RequestContext = Depends(require(Permission.AGENT_CHAT)),
     db: AsyncSession = Depends(get_db),
     workspace_id: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -237,6 +243,7 @@ async def list_sessions(
 @router.get("/sessions/{session_id}/messages")
 async def get_session_messages(
     session_id: str,
+    ctx: RequestContext = Depends(require(Permission.AGENT_CHAT)),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -272,6 +279,7 @@ async def get_session_messages(
 
 @router.post("/sessions/new")
 async def create_session(
+    ctx: RequestContext = Depends(require(Permission.AGENT_CHAT)),
     db: AsyncSession = Depends(get_db),
     workspace_id: str | None = Query(None),
     case_id: str | None = Query(None),

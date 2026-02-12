@@ -12,7 +12,9 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.models import (
     InvestigationCase,
     CaseNote,
@@ -129,6 +131,7 @@ async def list_cases(
     workspace_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
+    ctx: RequestContext = Depends(require(Permission.CASES_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -205,7 +208,7 @@ async def list_cases(
 # ── GET /api/cases/{case_id} — full case detail ─────────────────────────────
 
 @router.get("/{case_id}", response_model=CaseDetail)
-async def get_case(case_id: str, db: AsyncSession = Depends(get_db)):
+async def get_case(case_id: str, ctx: RequestContext = Depends(require(Permission.CASES_READ)), db: AsyncSession = Depends(get_db)):
     """
     Full case detail including claim data, rule results, score,
     evidence items, and investigation notes.
@@ -290,6 +293,7 @@ async def get_case(case_id: str, db: AsyncSession = Depends(get_db)):
 async def update_case_status(
     case_id: str,
     body: CaseStatusUpdate,
+    ctx: RequestContext = Depends(require(Permission.CASES_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -333,13 +337,13 @@ async def update_case_status(
         case_id=case.case_id,
         old_status=old_status,
         new_status=body.status,
-        actor="admin",
+        actor=ctx.actor,
     )
 
     await db.flush()
 
     # Return full detail
-    return await get_case(case_id, db)
+    return await get_case(case_id, ctx, db)
 
 
 # ── PUT /api/cases/{case_id}/assign — assign investigator ────────────────────
@@ -348,6 +352,7 @@ async def update_case_status(
 async def assign_case(
     case_id: str,
     body: CaseAssign,
+    ctx: RequestContext = Depends(require(Permission.CASES_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     """Assign or reassign a case to an investigator."""
@@ -360,7 +365,7 @@ async def assign_case(
     audit = AuditService(db)
     await audit.log_event(
         event_type="case_assigned",
-        actor="admin",
+        actor=ctx.actor,
         action=f"Case {case.case_id} assigned to {body.assigned_to}",
         resource_type="case",
         resource_id=case.case_id,
@@ -372,7 +377,7 @@ async def assign_case(
 
     await db.flush()
 
-    return await get_case(case_id, db)
+    return await get_case(case_id, ctx, db)
 
 
 # ── POST /api/cases/{case_id}/notes — add investigation note ────────────────
@@ -381,6 +386,7 @@ async def assign_case(
 async def add_case_note(
     case_id: str,
     body: CaseNoteCreate,
+    ctx: RequestContext = Depends(require(Permission.CASES_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     """Add an investigation note to a case."""
@@ -405,7 +411,7 @@ async def add_case_note(
 # ── GET /api/cases/{case_id}/evidence — evidence bundle ─────────────────────
 
 @router.get("/{case_id}/evidence", response_model=dict)
-async def get_case_evidence(case_id: str, db: AsyncSession = Depends(get_db)):
+async def get_case_evidence(case_id: str, ctx: RequestContext = Depends(require(Permission.CASES_READ)), db: AsyncSession = Depends(get_db)):
     """
     Assemble a comprehensive evidence bundle for the case.
 

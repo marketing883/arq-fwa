@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, func, and_, distinct, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.models import Provider, MedicalClaim, RiskScore, Workspace
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
@@ -159,6 +161,7 @@ METRIC_LABELS = {
 async def peer_comparison(
     npi: str,
     workspace_id: str | None = Query(None),
+    ctx: RequestContext = Depends(require(Permission.PROVIDERS_READ)),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Compare a provider's billing metrics to their specialty peer group."""

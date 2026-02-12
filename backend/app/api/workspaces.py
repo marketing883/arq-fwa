@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.models.workspace import Workspace
 from app.models.claim import MedicalClaim, PharmacyClaim
 from app.services.upload_service import UploadService
@@ -61,7 +63,7 @@ async def _get_workspace_or_404(workspace_id: str, db: AsyncSession) -> Workspac
 # ── GET /api/workspaces ──
 
 @router.get("", response_model=WorkspaceListResponse)
-async def list_workspaces(db: AsyncSession = Depends(get_db)):
+async def list_workspaces(ctx: RequestContext = Depends(require(Permission.WORKSPACE_READ)), db: AsyncSession = Depends(get_db)):
     """List all workspaces."""
     result = await db.execute(
         select(Workspace)
@@ -99,7 +101,7 @@ async def list_workspaces(db: AsyncSession = Depends(get_db)):
 # ── POST /api/workspaces ──
 
 @router.post("", response_model=WorkspaceSummary, status_code=201)
-async def create_workspace(body: WorkspaceCreate, db: AsyncSession = Depends(get_db)):
+async def create_workspace(body: WorkspaceCreate, ctx: RequestContext = Depends(require(Permission.WORKSPACE_MANAGE)), db: AsyncSession = Depends(get_db)):
     """Create a new workspace."""
     ws = Workspace(
         workspace_id=f"ws-{uuid4().hex[:8]}",
@@ -126,7 +128,7 @@ async def create_workspace(body: WorkspaceCreate, db: AsyncSession = Depends(get
 # ── GET /api/workspaces/{id} ──
 
 @router.get("/{workspace_id}", response_model=WorkspaceSummary)
-async def get_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+async def get_workspace(workspace_id: str, ctx: RequestContext = Depends(require(Permission.WORKSPACE_READ)), db: AsyncSession = Depends(get_db)):
     """Get workspace detail."""
     ws = await _get_workspace_or_404(workspace_id, db)
 
@@ -154,7 +156,7 @@ async def get_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
 # ── DELETE /api/workspaces/{id} ──
 
 @router.delete("/{workspace_id}", status_code=204)
-async def archive_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+async def archive_workspace(workspace_id: str, ctx: RequestContext = Depends(require(Permission.WORKSPACE_MANAGE)), db: AsyncSession = Depends(get_db)):
     """Archive a workspace (soft delete)."""
     ws = await _get_workspace_or_404(workspace_id, db)
     if ws.workspace_id == "ws-default":
@@ -170,6 +172,7 @@ async def upload_preview(
     workspace_id: str,
     file: UploadFile = File(...),
     claim_type: str = Form("medical"),
+    ctx: RequestContext = Depends(require(Permission.WORKSPACE_UPLOAD)),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a CSV file and get a column-mapping preview."""
@@ -214,6 +217,7 @@ async def upload_ingest(
     file: UploadFile = File(...),
     claim_type: str = Form("medical"),
     mapping: str = Form(...),  # JSON string: {csv_col: internal_field}
+    ctx: RequestContext = Depends(require(Permission.WORKSPACE_UPLOAD)),
     db: AsyncSession = Depends(get_db),
 ):
     """Ingest CSV data using the confirmed column mapping."""

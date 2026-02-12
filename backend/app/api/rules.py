@@ -8,9 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
 from app.models import Rule, RuleResult
 from app.services.audit_service import AuditService
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.schemas.schemas import (
     RuleSummary,
     RuleListResponse,
@@ -24,7 +26,10 @@ router = APIRouter(prefix="/api/rules", tags=["rules"])
 # ── GET /api/rules — list all rules with current config ─────────────────────
 
 @router.get("", response_model=RuleListResponse)
-async def list_rules(db: AsyncSession = Depends(get_db)):
+async def list_rules(
+    ctx: RequestContext = Depends(require(Permission.RULES_READ)),
+    db: AsyncSession = Depends(get_db),
+):
     """Return every rule with its current configuration."""
     result = await db.execute(
         select(Rule).order_by(Rule.claim_type, Rule.rule_id)
@@ -51,7 +56,11 @@ async def list_rules(db: AsyncSession = Depends(get_db)):
 # ── GET /api/rules/{rule_id} — single rule detail ───────────────────────────
 
 @router.get("/{rule_id}", response_model=RuleSummary)
-async def get_rule(rule_id: str, db: AsyncSession = Depends(get_db)):
+async def get_rule(
+    rule_id: str,
+    ctx: RequestContext = Depends(require(Permission.RULES_READ)),
+    db: AsyncSession = Depends(get_db),
+):
     """Return a single rule with its thresholds and configuration."""
     result = await db.execute(
         select(Rule).where(Rule.rule_id == rule_id)
@@ -79,6 +88,7 @@ async def get_rule(rule_id: str, db: AsyncSession = Depends(get_db)):
 async def update_rule_config(
     rule_id: str,
     body: RuleConfigUpdate,
+    ctx: RequestContext = Depends(require(Permission.RULES_CONFIGURE)),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -120,14 +130,14 @@ async def update_rule_config(
 
     # Bump version and record modifier
     rule.version += 1
-    rule.last_modified_by = "admin"
+    rule.last_modified_by = ctx.actor
 
     # Audit trail
     audit = AuditService(db)
     await audit.log_rule_config_changed(
         rule_id=rule_id,
         changes=changes,
-        admin="admin",
+        admin=ctx.actor,
     )
 
     await db.flush()
@@ -148,7 +158,11 @@ async def update_rule_config(
 # ── GET /api/rules/{rule_id}/stats — rule performance statistics ─────────────
 
 @router.get("/{rule_id}/stats", response_model=RuleStats)
-async def get_rule_stats(rule_id: str, db: AsyncSession = Depends(get_db)):
+async def get_rule_stats(
+    rule_id: str,
+    ctx: RequestContext = Depends(require(Permission.RULES_READ)),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Aggregate performance statistics for a single rule.
 

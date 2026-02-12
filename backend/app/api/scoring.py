@@ -5,7 +5,9 @@ Scoring API Router — manage risk-level thresholds.
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.services.scoring_engine import ScoringEngine, DEFAULT_RISK_THRESHOLDS
 from app.services.audit_service import AuditService
 from app.schemas.schemas import ScoringThresholds
@@ -14,7 +16,9 @@ router = APIRouter(prefix="/api/scoring", tags=["scoring"])
 
 
 @router.get("/thresholds", response_model=ScoringThresholds)
-async def get_thresholds() -> ScoringThresholds:
+async def get_thresholds(
+    ctx: RequestContext = Depends(require(Permission.SCORING_READ)),
+) -> ScoringThresholds:
     """Return the current risk-level thresholds."""
     return ScoringThresholds(**DEFAULT_RISK_THRESHOLDS)
 
@@ -23,6 +27,7 @@ async def get_thresholds() -> ScoringThresholds:
 async def update_thresholds(
     body: ScoringThresholds,
     db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(require(Permission.RULES_CONFIGURE)),
 ) -> ScoringThresholds:
     """
     Update risk-level thresholds.
@@ -51,7 +56,7 @@ async def update_thresholds(
     audit = AuditService(db)
     await audit.log_event(
         event_type="threshold_updated",
-        actor="admin",
+        actor=ctx.actor,
         action="Risk scoring thresholds updated",
         resource_type="scoring_thresholds",
         resource_id=None,

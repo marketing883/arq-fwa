@@ -13,7 +13,9 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.models import (
     MedicalClaim,
     PharmacyClaim,
@@ -51,6 +53,7 @@ async def list_claims(
     workspace_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
+    ctx: RequestContext = Depends(require(Permission.CLAIMS_READ)),
     db: AsyncSession = Depends(get_db),
 ) -> ClaimListResponse:
     """Return a paginated, filterable list of claims with risk information."""
@@ -255,6 +258,7 @@ async def list_claims(
 @router.get("/{claim_id}", response_model=ClaimDetail)
 async def get_claim_detail(
     claim_id: str,
+    ctx: RequestContext = Depends(require(Permission.CLAIMS_READ)),
     db: AsyncSession = Depends(get_db),
 ) -> ClaimDetail:
     """Return complete claim detail including rule results and risk score."""
@@ -400,7 +404,7 @@ async def get_claim_detail(
 # ---------------------------------------------------------------------------
 
 @router.get("/{claim_id}/rule-trace")
-async def get_rule_trace(claim_id: str, db: AsyncSession = Depends(get_db)):
+async def get_rule_trace(claim_id: str, ctx: RequestContext = Depends(require(Permission.CLAIMS_READ)), db: AsyncSession = Depends(get_db)):
     """Return step-by-step rule evaluation trace with human-readable explanations."""
     from app.services.rule_trace import RuleTraceService
     service = RuleTraceService(db)
@@ -415,7 +419,7 @@ async def get_rule_trace(claim_id: str, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/{claim_id}/confidence")
-async def get_pattern_confidence(claim_id: str, db: AsyncSession = Depends(get_db)):
+async def get_pattern_confidence(claim_id: str, ctx: RequestContext = Depends(require(Permission.CLAIMS_READ)), db: AsyncSession = Depends(get_db)):
     """Return pattern confidence scores based on historical case outcomes."""
     from app.services.pattern_confidence import PatternConfidenceService
     service = PatternConfidenceService(db)
@@ -430,6 +434,7 @@ async def get_pattern_confidence(claim_id: str, db: AsyncSession = Depends(get_d
 @router.post("/process-batch", response_model=ProcessBatchResponse)
 async def process_batch(
     body: ProcessBatchRequest,
+    ctx: RequestContext = Depends(require(Permission.CLAIMS_PROCESS)),
     db: AsyncSession = Depends(get_db),
 ) -> ProcessBatchResponse:
     """
@@ -530,7 +535,7 @@ async def process_batch(
     audit = AuditService(db)
     await audit.log_event(
         event_type="batch_processed",
-        actor="system",
+        actor=ctx.actor,
         action=f"Processed batch {batch_id}: {total_claims} claims, {cases_created} cases created",
         resource_type="batch",
         resource_id=batch_id,

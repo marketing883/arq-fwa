@@ -23,7 +23,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.models import (
     MedicalClaim,
     PharmacyClaim,
@@ -124,6 +126,7 @@ router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 @router.post("/run-full", response_model=PipelineRunResponse)
 async def run_full_pipeline(
     body: PipelineRunRequest,
+    ctx: RequestContext = Depends(require(Permission.PIPELINE_RUN)),
     db: AsyncSession = Depends(get_db),
 ) -> PipelineRunResponse:
     """
@@ -288,7 +291,7 @@ async def run_full_pipeline(
     audit = AuditService(db)
     await audit.log_event(
         event_type="pipeline_run",
-        actor="system",
+        actor=ctx.actor,
         action=f"Full pipeline run {batch_id}: {total_claims} claims processed",
         resource_type="batch",
         resource_id=batch_id,
@@ -328,7 +331,10 @@ async def run_full_pipeline(
 # ── Async job queue endpoints ────────────────────────────────────────────────
 
 @router.post("/enqueue", response_model=EnqueueResponse)
-async def enqueue_pipeline(body: EnqueueRequest):
+async def enqueue_pipeline(
+    body: EnqueueRequest,
+    ctx: RequestContext = Depends(require(Permission.PIPELINE_RUN)),
+):
     """Enqueue a pipeline job for background processing. Returns immediately."""
     job_id = await enqueue_pipeline_job(
         workspace_id=body.workspace_id,
@@ -340,7 +346,10 @@ async def enqueue_pipeline(body: EnqueueRequest):
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_pipeline_job(job_id: str):
+async def get_pipeline_job(
+    job_id: str,
+    ctx: RequestContext = Depends(require(Permission.PIPELINE_STATUS)),
+):
     """Get the status of a background pipeline job."""
     data = await get_job_status(job_id)
     if data is None:
@@ -371,6 +380,7 @@ async def get_pipeline_job(job_id: str):
 
 @router.get("/runs")
 async def list_pipeline_runs(
+    ctx: RequestContext = Depends(require(Permission.PIPELINE_STATUS)),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -406,7 +416,11 @@ async def list_pipeline_runs(
 
 
 @router.get("/runs/{run_id}")
-async def get_pipeline_run(run_id: str, db: AsyncSession = Depends(get_db)):
+async def get_pipeline_run(
+    run_id: str,
+    ctx: RequestContext = Depends(require(Permission.PIPELINE_STATUS)),
+    db: AsyncSession = Depends(get_db),
+):
     """Get detail for a specific pipeline run including config snapshot."""
     q = select(PipelineRun).where(PipelineRun.run_id == run_id)
     result = await db.execute(q)
@@ -430,7 +444,10 @@ async def get_pipeline_run(run_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/status", response_model=PipelineStatusResponse)
-async def pipeline_status(db: AsyncSession = Depends(get_db)):
+async def pipeline_status(
+    ctx: RequestContext = Depends(require(Permission.PIPELINE_STATUS)),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Get current pipeline status: counts of claims, scores, cases, and audit entries.
     """
@@ -480,6 +497,7 @@ async def pipeline_status(db: AsyncSession = Depends(get_db)):
 @router.post("/run-stream")
 async def run_pipeline_stream(
     body: PipelineRunRequest,
+    ctx: RequestContext = Depends(require(Permission.PIPELINE_RUN)),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -603,7 +621,7 @@ async def run_pipeline_stream(
         audit = AuditService(db)
         await audit.log_event(
             event_type="pipeline_run",
-            actor="system",
+            actor=ctx.actor,
             action=f"Streamed pipeline {batch_id}: {total_claims} claims",
             resource_type="batch",
             resource_id=batch_id,

@@ -5,7 +5,9 @@ Audit API Router — query audit trail and verify hash-chain integrity.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.services.audit_service import AuditService
 from app.schemas.schemas import AuditListResponse, AuditEntry, IntegrityCheckResponse
 
@@ -19,6 +21,7 @@ async def list_audit_entries(
     resource_id: str | None = Query(None, description="Filter by resource ID"),
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(50, ge=1, le=200, description="Page size"),
+    ctx: RequestContext = Depends(require(Permission.AUDIT_READ)),
     db: AsyncSession = Depends(get_db),
 ) -> AuditListResponse:
     """Return a paginated list of audit log entries with optional filters."""
@@ -64,6 +67,7 @@ async def list_audit_entries(
 
 @router.get("/integrity", response_model=IntegrityCheckResponse)
 async def check_integrity(
+    ctx: RequestContext = Depends(require(Permission.AUDIT_READ)),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrityCheckResponse:
     """Verify the hash-chain integrity of the entire audit trail."""

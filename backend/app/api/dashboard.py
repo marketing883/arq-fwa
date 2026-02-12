@@ -10,7 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_, case, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require
+from app.auth.permissions import Permission
+from app.auth.context import RequestContext
 from app.config import settings
 from app.models import (
     MedicalClaim,
@@ -60,6 +62,7 @@ async def _resolve_ws(db: AsyncSession, workspace_id: str | None) -> int | None:
 @router.get("/overview", response_model=DashboardOverview)
 async def get_overview(
     workspace_id: str | None = Query(None),
+    ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
     db: AsyncSession = Depends(get_db),
 ) -> DashboardOverview:
     """Return high-level dashboard statistics."""
@@ -155,6 +158,7 @@ async def get_overview(
 async def get_trends(
     period: str = Query("30d", pattern="^(30d|90d|1y)$"),
     workspace_id: str | None = Query(None),
+    ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
     db: AsyncSession = Depends(get_db),
 ) -> TrendsResponse:
     """Return daily trend data for claims processed/flagged over the given period."""
@@ -263,6 +267,7 @@ async def get_trends(
 async def get_top_providers(
     limit: int = Query(10, ge=1, le=100),
     workspace_id: str | None = Query(None),
+    ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
     db: AsyncSession = Depends(get_db),
 ) -> TopProvidersResponse:
     """Return providers ranked by average risk score (descending)."""
@@ -328,6 +333,7 @@ async def get_top_providers(
 @router.get("/rule-effectiveness", response_model=RuleEffectivenessResponse)
 async def get_rule_effectiveness(
     workspace_id: str | None = Query(None),
+    ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
     db: AsyncSession = Depends(get_db),
 ) -> RuleEffectivenessResponse:
     """Return effectiveness stats for each rule: trigger count, avg severity, fraud amount."""
