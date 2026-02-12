@@ -1,10 +1,19 @@
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import engine
+
+# Configure logging so errors are visible in Docker logs
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 from app.api.dashboard import router as dashboard_router
 from app.api.claims import router as claims_router
 from app.api.rules import router as rules_router
@@ -41,6 +50,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Return detailed error info in development mode so 500s are debuggable."""
+    tb = traceback.format_exc()
+    logging.getLogger("app").error(
+        "Unhandled %s on %s %s: %s\n%s",
+        type(exc).__name__, request.method, request.url.path, exc, tb,
+    )
+    detail = f"{type(exc).__name__}: {exc}"
+    if settings.environment == "development":
+        return JSONResponse(
+            status_code=500,
+            content={"detail": detail, "traceback": tb.splitlines()[-5:]},
+        )
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+
 
 # Register API routers
 app.include_router(dashboard_router)

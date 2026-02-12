@@ -120,24 +120,35 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+
     async function load() {
       setLoading(true);
-      try {
-        const [overviewData, providerData, ruleData] = await Promise.all([
-          dashboard.overview(activeWorkspace),
-          dashboard.topProviders(10, activeWorkspace),
-          dashboard.ruleEffectiveness(activeWorkspace),
-        ]);
-        if (!cancelled) {
-          setOverview(overviewData);
-          setProviders(providerData.providers);
-          setRuleEffectiveness(ruleData.rules);
+      while (retryCount <= MAX_RETRIES && !cancelled) {
+        try {
+          const [overviewData, providerData, ruleData] = await Promise.all([
+            dashboard.overview(activeWorkspace),
+            dashboard.topProviders(10, activeWorkspace),
+            dashboard.ruleEffectiveness(activeWorkspace),
+          ]);
+          if (!cancelled) {
+            setOverview(overviewData);
+            setProviders(providerData.providers);
+            setRuleEffectiveness(ruleData.rules);
+          }
+          break; // success
+        } catch (err) {
+          retryCount++;
+          if (retryCount <= MAX_RETRIES && !cancelled) {
+            console.warn(`Dashboard load attempt ${retryCount} failed, retrying in ${retryCount * 2}s...`);
+            await new Promise((r) => setTimeout(r, retryCount * 2000));
+          } else {
+            console.error("Failed to load dashboard data:", err);
+          }
         }
-      } catch (err) {
-        console.error("Failed to load dashboard data:", err);
-      } finally {
-        if (!cancelled) setLoading(false);
       }
+      if (!cancelled) setLoading(false);
     }
     load();
     return () => { cancelled = true; };
