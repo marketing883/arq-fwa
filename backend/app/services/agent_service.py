@@ -246,6 +246,175 @@ class AgentService:
         return context
 
     # ------------------------------------------------------------------
+    # Live data context for RAG
+    # ------------------------------------------------------------------
+
+    async def _gather_data_context(self, message: str) -> tuple[str, list[str]]:
+        """Query the database for live data relevant to the user's question.
+
+        Returns (context_text, sources) to inject into the LLM prompt so it
+        can give data-backed answers instead of generic advice.
+        """
+        msg = message.lower()
+        sections: list[str] = []
+        sources: list[str] = []
+
+        # ── Always include pipeline overview ──
+        med = (await self.session.execute(
+            select(func.count()).select_from(MedicalClaim)
+        )).scalar() or 0
+        rx = (await self.session.execute(
+            select(func.count()).select_from(PharmacyClaim)
+        )).scalar() or 0
+        total_cases = (await self.session.execute(
+            select(func.count()).select_from(InvestigationCase)
+        )).scalar() or 0
+        active = (await self.session.execute(
+            select(func.count()).select_from(InvestigationCase).where(
+                InvestigationCase.status.in_(["open", "under_review", "escalated"])
+            )
+        )).scalar() or 0
+
+        # Cases by risk level
+        risk_counts = {}
+        for level in ("critical", "high", "medium", "low"):
+            risk_counts[level] = (await self.session.execute(
+                select(func.count()).select_from(InvestigationCase)
+                .where(InvestigationCase.risk_level == level)
+            )).scalar() or 0
+
+        # Cases by status
+        status_counts = {}
+        for st in ("open", "under_review", "escalated", "resolved", "closed"):
+            status_counts[st] = (await self.session.execute(
+                select(func.count()).select_from(InvestigationCase)
+                .where(InvestigationCase.status == st)
+            )).scalar() or 0
+
+        scored = (await self.session.execute(
+            select(func.count()).select_from(RiskScore)
+        )).scalar() or 0
+
+        sections.append(
+            f"PLATFORM DATA (live from database):\n"
+            f"- Total claims: {med + rx:,} ({med:,} medical, {rx:,} pharmacy)\n"
+            f"- Scored claims: {scored:,}\n"
+            f"- Investigation cases: {total_cases:,} total, {active:,} active\n"
+            f"- Cases by risk level: {risk_counts['critical']} critical, "
+            f"{risk_counts['high']} high, {risk_counts['medium']} medium, "
+            f"{risk_counts['low']} low\n"
+            f"- Cases by status: {', '.join(f'{v} {k}' for k, v in status_counts.items() if v > 0)}"
+        )
+        sources.append("database:pipeline-stats")
+
+        # ── Top risk cases (if question is about risk/cases/counts) ──
+        if _matches_any(msg, [
+            "risk", "critical", "high", "case", "top", "worst", "severe",
+            "many", "total", "count", "number", "list", "show", "open",
+            "active", "escalat", "investigate",
+        ]):
+            q = await self.session.execute(
+                select(InvestigationCase)
+                .order_by(InvestigationCase.risk_score.desc())
+                .limit(10)
+            )
+            top_cases = list(q.scalars())
+            if top_cases:
+                case_lines = []
+                for c in top_cases:
+                    case_lines.append(
+                        f"  {c.case_id}: score={float(c.risk_score):.1f}, "
+                        f"level={c.risk_level}, status={c.status}, "
+                        f"priority={c.priority}, claim={c.claim_id} ({c.claim_type})"
+                    )
+                sections.append(
+                    "TOP 10 HIGHEST-RISK CASES:\n" + "\n".join(case_lines)
+                )
+                sources.append("database:top-cases")
+
+        # ── Rule stats (if question is about rules/detection) ──
+        if _matches_any(msg, [
+            "rule", "trigger", "detection", "pattern", "flag", "fired",
+            "common", "frequent",
+        ]):
+            q = await self.session.execute(
+                select(RuleResult.rule_id, func.count().label("cnt"))
+                .where(RuleResult.triggered == True)
+                .group_by(RuleResult.rule_id)
+                .order_by(func.count().desc())
+                .limit(10)
+            )
+            top_rules = list(q)
+            if top_rules:
+                rule_ids = [r[0] for r in top_rules]
+                rules_q = await self.session.execute(
+                    select(Rule).where(Rule.rule_id.in_(rule_ids))
+                )
+                rm = {r.rule_id: r for r in rules_q.scalars()}
+                rule_lines = []
+                for rule_id, cnt in top_rules:
+                    rule = rm.get(rule_id)
+                    desc = rule.description if rule else rule_id
+                    cat = rule.category if rule else "N/A"
+                    rule_lines.append(
+                        f"  {rule_id} ({cat}): {desc} — triggered {cnt} times"
+                    )
+                sections.append(
+                    "MOST TRIGGERED FRAUD RULES:\n" + "\n".join(rule_lines)
+                )
+                sources.append("database:rule-stats")
+
+        # ── Provider info (if question mentions providers) ──
+        if _matches_any(msg, ["provider", "doctor", "npi", "who"]):
+            npi_match = re.search(r'\b(\d{10})\b', msg)
+            if npi_match:
+                npi = npi_match.group(1)
+                prov_q = await self.session.execute(
+                    select(Provider).where(Provider.npi == npi)
+                )
+                prov = prov_q.scalar_one_or_none()
+                if prov:
+                    sections.append(
+                        f"PROVIDER LOOKUP (NPI {npi}):\n"
+                        f"  Name: {prov.name}, Specialty: {prov.specialty}, "
+                        f"Active: {prov.is_active}, OIG Excluded: {prov.oig_excluded}"
+                    )
+                    sources.append(f"database:provider:{npi}")
+            else:
+                subq = (
+                    select(MedicalClaim.provider_id, func.count().label("cnt"))
+                    .where(MedicalClaim.claim_id.in_(
+                        select(InvestigationCase.claim_id)
+                    ))
+                    .group_by(MedicalClaim.provider_id)
+                    .order_by(func.count().desc())
+                    .limit(5)
+                    .subquery()
+                )
+                q = await self.session.execute(
+                    select(
+                        Provider.npi, Provider.name,
+                        Provider.specialty, subq.c.cnt,
+                    )
+                    .join(subq, Provider.id == subq.c.provider_id)
+                    .order_by(subq.c.cnt.desc())
+                )
+                top_provs = list(q)
+                if top_provs:
+                    prov_lines = []
+                    for npi, name, spec, cnt in top_provs:
+                        prov_lines.append(
+                            f"  {name} (NPI: {npi}, {spec}): {cnt} cases"
+                        )
+                    sections.append(
+                        "TOP PROVIDERS BY INVESTIGATION CASES:\n"
+                        + "\n".join(prov_lines)
+                    )
+                    sources.append("database:top-providers")
+
+        return "\n\n".join(sections), sources
+
+    # ------------------------------------------------------------------
     # Investigate case
     # ------------------------------------------------------------------
 
@@ -383,31 +552,58 @@ class AgentService:
     # ------------------------------------------------------------------
 
     async def chat(self, message: str, case_id: str | None = None) -> ChatResponse:
-        context_text = ""
+        context_parts: list[str] = []
         sources: list[str] = []
 
         try:
+            # ── 1. Always gather live data from the database (RAG) ──
+            data_context, data_sources = await self._gather_data_context(message)
+            if data_context:
+                context_parts.append(data_context)
+                sources.extend(data_sources)
+
+            # ── 2. Add case-specific context if a case is selected ──
             if case_id:
-                context = await self._gather_case_context(case_id)
-                if "error" not in context:
-                    context_text = f"\n\nCase context:\n{json.dumps(context, indent=2, default=str)}"
+                case_ctx = await self._gather_case_context(case_id)
+                if "error" not in case_ctx:
+                    context_parts.append(
+                        f"SELECTED CASE DETAIL:\n"
+                        f"{json.dumps(case_ctx, indent=2, default=str)}"
+                    )
                     sources.append(f"case:{case_id}")
-                    for r in context.get("triggered_rules", []):
+                    for r in case_ctx.get("triggered_rules", []):
                         sources.append(f"rule:{r['rule_id']}")
 
-            # Try LLM
+            # ── 3. Build prompt with data context ──
             system_prompt = (
-                "You are an AI assistant specializing in healthcare fraud, waste, and abuse (FWA) detection. "
-                "You help investigators analyze cases, explain fraud patterns, and provide guidance. "
-                "Be precise, reference specific data when available, and explain your reasoning."
+                "You are an AI assistant for the ArqAI healthcare fraud, waste, and "
+                "abuse (FWA) detection platform. You have access to LIVE DATA from "
+                "the platform database, provided below.\n\n"
+                "IMPORTANT RULES:\n"
+                "- ALWAYS use the provided data to answer questions. Never say "
+                "\"check your system\" or give generic advice.\n"
+                "- Quote exact numbers from the data. If the data says 42 critical "
+                "cases, say \"There are 42 critical cases.\"\n"
+                "- If the data doesn't contain enough information to fully answer, "
+                "say what you can from the data and note what's missing.\n"
+                "- Format responses with markdown: use **bold** for key numbers, "
+                "bullet lists for breakdowns, and tables when comparing data.\n"
+                "- Be concise and direct. Lead with the answer, then provide detail."
             )
-            prompt = f"{message}{context_text}"
+
+            context_block = "\n\n---\n\n".join(context_parts) if context_parts else ""
+            prompt = f"{message}\n\n{context_block}" if context_block else message
+
             response = await self._call_ollama(prompt, system_prompt)
 
             if response:
-                return ChatResponse(response=response, sources_cited=sources, model_used=self.model)
+                return ChatResponse(
+                    response=response,
+                    sources_cited=sources,
+                    model_used=self.model,
+                )
 
-            # Data-driven fallback
+            # ── 4. Data-driven fallback (LLM unavailable) ──
             return await self._data_driven_chat(message, case_id, sources)
 
         except Exception as exc:
