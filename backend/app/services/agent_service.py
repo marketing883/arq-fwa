@@ -67,16 +67,36 @@ class AgentService:
         if self._available is not None:
             return self._available
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                # Try direct model check first (most reliable)
+                try:
+                    show = await client.post(
+                        f"{self.ollama_url}/api/show",
+                        json={"name": self.model},
+                    )
+                    if show.status_code == 200:
+                        self._available = True
+                        logger.info("Ollama model %s confirmed via /api/show", self.model)
+                        return True
+                except Exception:
+                    pass
+
+                # Fallback to tag list
                 resp = await client.get(f"{self.ollama_url}/api/tags")
                 if resp.status_code == 200:
                     tags = resp.json()
                     models = [m.get("name", "") for m in tags.get("models", [])]
-                    # Check if our model is actually pulled
-                    self._available = any(self.model in m for m in models)
+                    self._available = any(
+                        self.model == m or self.model in m for m in models
+                    )
+                    if not self._available:
+                        logger.warning(
+                            "Model %s not in Ollama tags: %s", self.model, models
+                        )
                 else:
                     self._available = False
-        except Exception:
+        except Exception as exc:
+            logger.warning("Ollama check failed: %s", exc)
             self._available = False
         return self._available
 

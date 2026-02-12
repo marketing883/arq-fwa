@@ -2,6 +2,8 @@
 Agent API — AI-powered investigation and chat endpoints.
 """
 
+import logging
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,6 +13,7 @@ from app.api.deps import get_db
 from app.config import settings
 from app.services.agent_service import AgentService
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -46,18 +49,54 @@ class ChatResponseSchema(BaseModel):
 async def agent_status():
     """Check if the AI model is available."""
     model = settings.llm_model
+    base_url = settings.ollama_url
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{settings.ollama_url}/api/tags")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Method 1: Direct model check via /api/show (most reliable)
+            try:
+                show_resp = await client.post(
+                    f"{base_url}/api/show",
+                    json={"name": model},
+                )
+                if show_resp.status_code == 200:
+                    logger.info("Ollama model %s is ready (via /api/show)", model)
+                    return {"status": "ready", "model": model, "mode": "slm"}
+            except Exception:
+                pass
+
+            # Method 2: Fallback to /api/tags list
+            resp = await client.get(f"{base_url}/api/tags")
             if resp.status_code == 200:
                 tags = resp.json()
                 models = [m.get("name", "") for m in tags.get("models", [])]
-                if any(model in m for m in models):
-                    return {"status": "ready", "model": model, "mode": "slm"}
-                return {"status": "loading", "model": model, "mode": "data-engine",
-                        "detail": f"Model {model} is being downloaded"}
-    except Exception:
-        pass
+                logger.info("Ollama available models: %s", models)
+
+                # Normalize: strip :latest tag for comparison
+                model_base = model.split(":")[0]  # e.g. "qwen3"
+                model_tag = model.split(":")[-1] if ":" in model else ""  # e.g. "8b"
+
+                for m in models:
+                    # Exact match
+                    if m == model:
+                        return {"status": "ready", "model": model, "mode": "slm"}
+                    # Substring match (qwen3:8b in qwen3:8b-q4_0)
+                    if model in m:
+                        return {"status": "ready", "model": model, "mode": "slm"}
+                    # Base match with tag (qwen3 matches qwen3:latest)
+                    m_base = m.split(":")[0]
+                    m_tag = m.split(":")[-1] if ":" in m else ""
+                    if m_base == model_base and (m_tag == model_tag or model_tag in m_tag):
+                        return {"status": "ready", "model": model, "mode": "slm"}
+
+                logger.warning(
+                    "Model %s not found in Ollama. Available: %s", model, models
+                )
+                return {
+                    "status": "loading", "model": model, "mode": "data-engine",
+                    "detail": f"Model {model} not found. Available: {', '.join(models) or 'none'}",
+                }
+    except Exception as exc:
+        logger.warning("Cannot reach Ollama at %s: %s", base_url, exc)
     return {"status": "ready", "model": "data-engine", "mode": "data-engine"}
 
 
