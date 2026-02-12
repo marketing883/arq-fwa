@@ -256,7 +256,14 @@ class UploadService:
         for row in mem_result:
             member_cache[row[0]] = row[1]
 
+        # Pre-load existing claim_ids to skip duplicates
+        existing_claims: set[str] = set()
+        ec_result = await self.db.execute(select(MedicalClaim.claim_id))
+        for row in ec_result:
+            existing_claims.add(row[0])
+
         claims_created = 0
+        claims_skipped = 0
         providers_created = 0
         members_created = 0
         errors: list[dict] = []
@@ -276,6 +283,12 @@ class UploadService:
                 if not claim_id or not member_id_str or not npi:
                     errors.append({"row": row_num, "error": "Missing required field (claim_id, member_id, or provider_npi)"})
                     continue
+
+                # Skip duplicates
+                if claim_id in existing_claims:
+                    claims_skipped += 1
+                    continue
+                existing_claims.add(claim_id)
 
                 # Ensure provider exists
                 if npi not in provider_cache:
@@ -395,7 +408,14 @@ class UploadService:
         for row in mem_result:
             member_cache[row[0]] = row[1]
 
+        # Pre-load existing claim_ids to skip duplicates
+        existing_claims: set[str] = set()
+        ec_result = await self.db.execute(select(PharmacyClaim.claim_id))
+        for row in ec_result:
+            existing_claims.add(row[0])
+
         claims_created = 0
+        claims_skipped = 0
         providers_created = 0
         pharmacies_created = 0
         members_created = 0
@@ -417,6 +437,12 @@ class UploadService:
                 if not claim_id or not member_id_str or not prescriber_npi or not pharmacy_npi:
                     errors.append({"row": row_num, "error": "Missing required field"})
                     continue
+
+                # Skip duplicates
+                if claim_id in existing_claims:
+                    claims_skipped += 1
+                    continue
+                existing_claims.add(claim_id)
 
                 if prescriber_npi not in provider_cache:
                     prov = Provider(
