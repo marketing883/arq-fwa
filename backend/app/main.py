@@ -28,6 +28,7 @@ from app.api.pipeline import router as pipeline_router
 from app.api.workspaces import router as workspaces_router
 from app.api.providers import router as providers_router
 from app.api.metrics import router as metrics_router
+from app.api.governance import router as governance_router
 
 
 @asynccontextmanager
@@ -107,6 +108,7 @@ app.include_router(pipeline_router)
 app.include_router(workspaces_router)
 app.include_router(providers_router)
 app.include_router(metrics_router)
+app.include_router(governance_router)
 
 
 # ── Health check (expanded) ──────────────────────────────────────────────────

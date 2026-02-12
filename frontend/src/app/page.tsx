@@ -2,10 +2,9 @@
 import { useEffect, useState } from "react";
 import {
   dashboard,
-  claims,
+  governance,
   type DashboardOverview,
-  type ClaimSummary,
-  type PaginatedClaims,
+  type GovernanceHealth,
 } from "@/lib/api";
 import type {
   TopProviderItem,
@@ -36,6 +35,9 @@ import {
   AlertTriangle,
   DollarSign,
   Briefcase,
+  Shield,
+  Activity,
+  Eye,
 } from "lucide-react";
 import Link from "next/link";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -116,6 +118,7 @@ export default function DashboardPage() {
   const [ruleEffectiveness, setRuleEffectiveness] = useState<
     RuleEffectivenessItem[] | null
   >(null);
+  const [govHealth, setGovHealth] = useState<GovernanceHealth | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -151,6 +154,8 @@ export default function DashboardPage() {
       if (!cancelled) setLoading(false);
     }
     load();
+    // Load governance health separately (non-blocking)
+    governance.health().then((h) => { if (!cancelled) setGovHealth(h); }).catch(() => {});
     return () => { cancelled = true; };
   }, [activeWorkspace]);
 
@@ -310,6 +315,117 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* AI Governance Health Strip */}
+      {govHealth && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-indigo-600" />
+              <h2 className="text-sm font-semibold text-gray-900">
+                AI Governance Health
+              </h2>
+            </div>
+            <Link
+              href="/governance"
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              View Details &rarr;
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
+            {/* ArqFlow */}
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield className="w-4 h-4 text-blue-500" />
+                <span className="text-xs font-semibold text-gray-700">ArqFlow</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-400">Trust Profiles</span>
+                  <p className="font-semibold text-gray-900">{govHealth.tao.trust_profiles}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Avg Trust</span>
+                  <p className="font-semibold text-gray-900">
+                    {govHealth.tao.avg_trust_score != null
+                      ? `${(govHealth.tao.avg_trust_score * 100).toFixed(0)}%`
+                      : "N/A"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-gray-400">HITL Pending</span>
+                  <p className={cn("font-semibold", govHealth.tao.hitl_pending > 0 ? "text-amber-600" : "text-green-600")}>
+                    {govHealth.tao.hitl_pending}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Receipts</span>
+                  <p className="font-semibold text-gray-900">{govHealth.tao.audit_receipts}</p>
+                </div>
+              </div>
+            </div>
+            {/* ArqGuard */}
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield className="w-4 h-4 text-emerald-500" />
+                <span className="text-xs font-semibold text-gray-700">ArqGuard</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-400">Evidence Packets</span>
+                  <p className="font-semibold text-gray-900">{govHealth.capc.evidence_packets}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Violations</span>
+                  <p className={cn("font-semibold", govHealth.capc.policy_violations > 0 ? "text-red-600" : "text-green-600")}>
+                    {govHealth.capc.policy_violations}
+                  </p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-gray-400">Compliance</span>
+                  <p className="font-semibold text-gray-900">
+                    {govHealth.capc.evidence_packets > 0
+                      ? `${(((govHealth.capc.evidence_packets - govHealth.capc.policy_violations) / govHealth.capc.evidence_packets) * 100).toFixed(1)}%`
+                      : "N/A"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            {/* ArqSight */}
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity className="w-4 h-4 text-orange-500" />
+                <span className="text-xs font-semibold text-gray-700">ArqSight</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-400">Signals (24h)</span>
+                  <p className="font-semibold text-gray-900">{govHealth.oda_rag.signals_24h}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Adaptations</span>
+                  <p className="font-semibold text-gray-900">{govHealth.oda_rag.adaptations}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Feedback Avg</span>
+                  <p className="font-semibold text-gray-900">
+                    {govHealth.oda_rag.avg_feedback_quality != null
+                      ? `${(govHealth.oda_rag.avg_feedback_quality * 100).toFixed(0)}%`
+                      : "N/A"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Status</span>
+                  <p className={cn("font-semibold", govHealth.oda_rag.signals_24h > 0 ? "text-green-600" : "text-gray-400")}>
+                    {govHealth.oda_rag.signals_24h > 0 ? "Active" : "Idle"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Flagged Providers Table */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm">

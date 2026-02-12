@@ -522,3 +522,189 @@ export const providers = {
     return fetchAPI<PeerComparison>(`/providers/${npi}/peer-comparison${q ? `?${q}` : ""}`);
   },
 };
+
+// ── Governance (TAO / CAPC / ODA-RAG) ──
+
+export interface GovernanceHealth {
+  tao: {
+    lineage_nodes: number;
+    lineage_24h: number;
+    trust_profiles: number;
+    avg_trust_score: number | null;
+    tokens_issued: number;
+    tokens_24h: number;
+    hitl_pending: number;
+    hitl_total: number;
+    audit_receipts: number;
+  };
+  capc: {
+    evidence_packets: number;
+    evidence_24h: number;
+    policy_violations: number;
+  };
+  oda_rag: {
+    signals_total: number;
+    signals_24h: number;
+    adaptations: number;
+    avg_feedback_quality: number | null;
+  };
+}
+
+export interface TrustProfile {
+  agent_id: string;
+  trust_score: number;
+  escalation_level: number;
+  escalation_reason: string | null;
+  decay_model: string;
+  last_successful_action: string | null;
+  last_trust_update: string | null;
+  history_count: number;
+}
+
+export interface TrustProfileDetail extends TrustProfile {
+  initial_trust: number;
+  decay_rate: number;
+  trust_history: Array<Record<string, unknown>>;
+}
+
+export interface HITLRequest {
+  request_id: string;
+  agent_id: string;
+  requested_action: string;
+  action_risk_score: number;
+  risk_tier: string;
+  agent_trust_score: number;
+  justification: string | null;
+  status: string;
+  reviewer: string | null;
+  created_at: string | null;
+  resolved_at: string | null;
+}
+
+export interface LineageNode {
+  node_id: string;
+  node_type: string;
+  agent_id: string | null;
+  action: string;
+  trust_score: number | null;
+  duration_ms: number | null;
+  created_at: string | null;
+}
+
+export interface AuditReceiptItem {
+  receipt_id: string;
+  action_type: string;
+  agent_id: string;
+  timestamp: string | null;
+  action_risk_score: number | null;
+  lineage_node_id: string | null;
+  capability_token_id: string | null;
+  output_summary: string | null;
+}
+
+export interface EvidencePacketSummary {
+  packet_id: string;
+  ir_id: string | null;
+  original_request: string;
+  policy_decisions_count: number;
+  exception_action: string | null;
+  packet_hash: string;
+  created_at: string | null;
+}
+
+export interface EvidencePacketDetail extends EvidencePacketSummary {
+  compiled_ir: Record<string, unknown> | null;
+  policy_decisions: Array<Record<string, unknown>> | null;
+  preconditions: Array<Record<string, unknown>> | null;
+  approvals: Array<Record<string, unknown>> | null;
+  lineage_hashes: Array<string> | null;
+  model_tool_versions: Record<string, unknown> | null;
+  results: Record<string, unknown> | null;
+  signature: string;
+}
+
+export interface RAGSignalItem {
+  signal_id: string;
+  signal_type: string;
+  metric_name: string;
+  metric_value: number;
+  created_at: string | null;
+}
+
+export interface SignalSummaryItem {
+  signal_type: string;
+  count: number;
+  avg_value: number | null;
+  min_value: number | null;
+  max_value: number | null;
+}
+
+export interface AdaptationItem {
+  event_id: string;
+  action_type: string;
+  drift_score: number | null;
+  reason: string | null;
+  parameters_before: Record<string, unknown> | null;
+  parameters_after: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+export interface RAGFeedbackItem {
+  feedback_id: string;
+  query: string;
+  response_quality: number;
+  relevance_score: number | null;
+  feedback_source: string;
+  created_at: string | null;
+}
+
+export const governance = {
+  health: () => fetchAPI<GovernanceHealth>("/governance/health"),
+
+  // TAO
+  trustProfiles: () =>
+    fetchAPI<{ profiles: TrustProfile[] }>("/governance/tao/trust-profiles"),
+  trustProfileDetail: (agentId: string) =>
+    fetchAPI<TrustProfileDetail>(`/governance/tao/trust-profiles/${agentId}`),
+  hitlRequests: (status?: string, limit: number = 50) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    if (status) qs.set("status", status);
+    return fetchAPI<{ requests: HITLRequest[] }>(`/governance/tao/hitl-requests?${qs}`);
+  },
+  lineage: (params?: { node_type?: string; agent_id?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.node_type) qs.set("node_type", params.node_type);
+    if (params?.agent_id) qs.set("agent_id", params.agent_id);
+    qs.set("limit", String(params?.limit || 50));
+    return fetchAPI<{ nodes: LineageNode[] }>(`/governance/tao/lineage?${qs}`);
+  },
+  auditReceipts: (limit: number = 50) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    return fetchAPI<{ receipts: AuditReceiptItem[] }>(`/governance/tao/audit-receipts?${qs}`);
+  },
+
+  // CAPC
+  evidencePackets: (limit: number = 50) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    return fetchAPI<{ packets: EvidencePacketSummary[] }>(`/governance/capc/evidence-packets?${qs}`);
+  },
+  evidencePacketDetail: (packetId: string) =>
+    fetchAPI<EvidencePacketDetail>(`/governance/capc/evidence-packets/${packetId}`),
+
+  // ODA-RAG
+  signals: (signalType?: string, limit: number = 100) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    if (signalType) qs.set("signal_type", signalType);
+    return fetchAPI<{ signals: RAGSignalItem[] }>(`/governance/oda-rag/signals?${qs}`);
+  },
+  signalSummary: () =>
+    fetchAPI<{ summary: SignalSummaryItem[] }>("/governance/oda-rag/signal-summary"),
+  adaptations: (limit: number = 50) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    return fetchAPI<{ adaptations: AdaptationItem[] }>(`/governance/oda-rag/adaptations?${qs}`);
+  },
+  feedback: (limit: number = 50) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    return fetchAPI<{ feedback: RAGFeedbackItem[] }>(`/governance/oda-rag/feedback?${qs}`);
+  },
+};

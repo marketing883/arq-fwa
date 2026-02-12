@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Building2,
   Play,
+  Eye,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 import { useState, useRef, useEffect } from "react";
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/cases", label: "Cases", icon: Flag },
   { href: "/rules", label: "Rules", icon: Settings },
   { href: "/compliance", label: "Compliance", icon: Shield },
+  { href: "/governance", label: "AI Governance", icon: Eye },
   { href: "/agents", label: "AI Assistant", icon: Bot },
   { href: "/pipeline", label: "Pipeline", icon: Play },
   { href: "/upload", label: "Upload Data", icon: Upload },
