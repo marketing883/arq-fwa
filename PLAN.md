@@ -1,644 +1,297 @@
-# Build Plan: Client Workspaces + Transparency Features
+# Enterprise Readiness Implementation Plan
 
-## Overview
-
-Two major capabilities:
-1. **Client Workspaces** — Isolated data environments with CSV upload + column mapping
-2. **Transparency Layer** — Rule Trace, Live Pipeline, Peer Comparison, Confidence Indicators
-
-Build order is chosen so that each phase is independently testable and nothing breaks existing functionality.
+## Execution Order
+1. **Workstream 2** — Security & HIPAA Compliance
+2. **Workstream 4** — Observability & Monitoring
+3. **Workstream 5** — Pipeline Robustness
+4. **Workstream 7** — AI Agent Intelligence
 
 ---
 
-## Phase 1: Workspace Database Foundation
+## Workstream 2: Security & HIPAA Compliance
 
-**Goal:** Add workspace isolation to the data model without breaking anything existing.
+### 2A. Environment-Aware Config Validation
+**File:** `backend/app/config.py`
 
-### 1A. New migration: `workspaces` table
+- Add a `@model_validator` that **refuses to start** in `environment=production` if `secret_key` is the default dev value or if `database_url` contains `arqai_dev_password`
+- Add `allowed_origins: str = "http://localhost:3000"` (comma-separated, parsed to list) — no more hardcoded list in `main.py`
+- Add `rate_limit_per_minute: int = 60` config
+- Add `encryption_key: str = ""` for PII encryption (required in production)
 
-```sql
-CREATE TABLE workspaces (
-    id SERIAL PRIMARY KEY,
-    workspace_id VARCHAR(32) UNIQUE NOT NULL,   -- "ws-abc123"
-    name VARCHAR(100) NOT NULL,                 -- "Acme Insurance Demo"
-    client_name VARCHAR(100),                   -- "Acme Insurance"
-    description TEXT,
-    data_source VARCHAR(20) DEFAULT 'upload',   -- "synthetic" | "upload"
-    status VARCHAR(20) DEFAULT 'active',        -- "active" | "archived"
-    claim_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-```
+### 2B. Redis-Backed Rate Limiting Middleware
+**New file:** `backend/app/middleware/rate_limit.py`
 
-### 1B. Add `workspace_id` to existing tables
+- Uses the **existing Redis** service (configured, dependency installed, currently unused)
+- Sliding window algorithm: track request counts per IP per minute in Redis
+- Configurable via `settings.rate_limit_per_minute` (default 60)
+- Returns `429 Too Many Requests` with `Retry-After` header when exceeded
+- Exempt health check and metrics endpoints
+- Register in `main.py` as ASGI middleware
 
-Add nullable `workspace_id INTEGER REFERENCES workspaces(id)` to:
-- `medical_claims`
-- `pharmacy_claims`
-- `members`
-- `providers`
-- `pharmacies`
-- `risk_scores`
-- `rule_results`
-- `investigation_cases`
+### 2C. Security Headers Middleware
+**New file:** `backend/app/middleware/security_headers.py`
 
-**Strategy:** Nullable column first → backfill existing rows to a "default" workspace → keep nullable (upload flows will always set it).
+- Adds headers to every response:
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `X-XSS-Protection: 1; mode=block`
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+- Also update **nginx/nginx.conf** to add:
+  - `Strict-Transport-Security` (HSTS)
+  - `Content-Security-Policy` (CSP) header
 
-### 1C. Create default workspace + backfill
+### 2D. PII Field Encryption
+**New file:** `backend/app/services/encryption_service.py`
 
-Data migration step:
-1. Insert default workspace: `workspace_id="ws-default", name="Synthetic Demo", data_source="synthetic"`
-2. UPDATE all existing rows to point to default workspace
+- AES-256-GCM encryption using `cryptography` library (new dep)
+- Encrypt/decrypt helper functions keyed by `settings.encryption_key`
+- Apply to sensitive Member fields at write time: `first_name`, `last_name`, `date_of_birth`
+- Decrypt transparently on read via a service layer
+- Graceful handling: if `encryption_key` is empty (dev mode), store plaintext with a logged warning
 
-### 1D. New model: `Workspace` in `app/models/workspace.py`
+### 2E. CSV Upload Sanitization
+**File:** `backend/app/services/upload_service.py`
 
-### 1E. Add `workspace_id` field to existing models
+- Add file size validation (configurable max, e.g., 50MB)
+- Validate CSV structure before processing: max column count, max row count, no binary content
+- Strip/escape special characters in string fields to prevent injection
+- Reject files with embedded formulas (=, +, -, @ at cell start — CSV injection prevention)
 
-Add the column + FK relationship to: MedicalClaim, PharmacyClaim, Member, Provider, Pharmacy, RiskScore, RuleResult, InvestigationCase.
+### 2F. CORS Tightening
+**File:** `backend/app/main.py`
 
-### Files touched:
-- `backend/app/models/workspace.py` (NEW)
-- `backend/app/models/claim.py` (add workspace_id FK)
-- `backend/app/models/provider.py` (add workspace_id FK)
-- `backend/app/models/member.py` (add workspace_id FK)
-- `backend/app/models/scoring.py` (add workspace_id FK)
-- `backend/app/models/case.py` (add workspace_id FK)
-- `backend/alembic/versions/` (NEW migration)
+- Read allowed origins from `settings.allowed_origins` instead of hardcoded list
+- In production: restrict to actual deployment domain only
+- Remove `allow_methods=["*"]` — list only GET, POST, PUT, PATCH, DELETE
+- Remove `allow_headers=["*"]` — list only Content-Type, Authorization, X-Request-ID
 
-### How to test:
-```bash
-alembic upgrade head
-# Verify: psql → SELECT count(*) FROM workspaces; → 1 (default)
-# Verify: SELECT DISTINCT workspace_id FROM medical_claims; → all point to default
-# Verify: All existing API endpoints still work unchanged
-```
+### New dependencies:
+- `cryptography>=43.0.0` (for AES encryption)
 
 ---
 
-## Phase 2: Workspace API + Upload Engine
+## Workstream 4: Observability & Monitoring
 
-**Goal:** CRUD for workspaces, CSV upload with preview + column mapping, data ingestion.
+### 4A. Structured JSON Logging
+**New file:** `backend/app/middleware/logging_config.py`
 
-### 2A. Upload mapping config: `app/upload/column_maps.py`
+- Replace text formatter with JSON structured logging
+- Every log line includes: `timestamp`, `level`, `logger`, `message`, `request_id`, `duration_ms`
+- Configure in `main.py` lifespan, driven by `settings.log_level`
+- Use Python's `logging.Formatter` subclass for JSON output
 
-Define expected schema for medical and pharmacy claims:
-```python
-MEDICAL_REQUIRED = {
-    "claim_id": ["claim_id", "claim_number", "claim_no", "clm_id"],
-    "member_id": ["member_id", "member_number", "subscriber_id", "mbr_id"],
-    "provider_npi": ["npi", "provider_npi", "rendering_npi", "billing_npi"],
-    "service_date": ["service_date", "dos", "date_of_service", "svc_date"],
-    "cpt_code": ["cpt_code", "cpt", "procedure_code", "proc_code", "hcpcs"],
-    "diagnosis_code_primary": ["diagnosis_code", "dx_code", "icd_code", "primary_dx", "dx1"],
-    "amount_billed": ["amount_billed", "billed_amount", "charge_amount", "total_charge"],
-}
+### 4B. Request Context Middleware
+**New file:** `backend/app/middleware/request_context.py`
 
-MEDICAL_OPTIONAL = {
-    "amount_allowed": [...],
-    "amount_paid": [...],
-    "place_of_service": [...],
-    ...
-}
-```
+- Generate or propagate `X-Request-ID` header (UUID4 if not provided)
+- Store in `contextvars.ContextVar` so all downstream code (services, DB queries, logs) can access it
+- Add `request_id` to every log line automatically via the JSON formatter
+- Add response timing: capture start time, compute `duration_ms`, log on response
+- Return `X-Request-ID` in response headers for client-side correlation
 
-Auto-match logic: normalize column names (lowercase, strip spaces/underscores), fuzzy match against known aliases.
+### 4C. Prometheus Metrics
+**New file:** `backend/app/middleware/metrics.py`
+**New endpoint in:** `backend/app/api/metrics.py`
 
-### 2B. Upload service: `app/services/upload_service.py`
+- Use `prometheus_client` library (new dep)
+- Collect metrics:
+  - `http_requests_total` — Counter by method, path, status_code
+  - `http_request_duration_seconds` — Histogram by method, path
+  - `pipeline_runs_total` — Counter by workspace, status (success/error)
+  - `pipeline_duration_seconds` — Histogram
+  - `pipeline_claims_processed` — Counter
+  - `agent_chat_requests_total` — Counter by model_used
+  - `agent_chat_duration_seconds` — Histogram
+  - `active_cases_by_risk_level` — Gauge (updated periodically)
+- Expose `GET /metrics` endpoint (Prometheus text format)
 
-```python
-class UploadService:
-    async def preview_csv(file: UploadFile) -> UploadPreview
-        # Read first 100 rows, detect columns, auto-map, return preview
+### 4D. Expanded Health Checks
+**File:** `backend/app/main.py` (existing `/api/health`)
 
-    async def validate_mapping(mapping: ColumnMapping, file) -> ValidationResult
-        # Check required fields mapped, validate data types, sample parse
+- Expand to check:
+  - **Database**: Attempt `SELECT 1` — report connected/disconnected
+  - **Redis**: Attempt `PING` — report connected/disconnected
+  - **Ollama**: Check model availability — report ready/loading/unavailable
+- Return overall status: `healthy` (all up), `degraded` (some down), `unhealthy` (DB down)
+- Include component details in response body
+- Keep the endpoint lightweight (cache component checks for 10s)
 
-    async def ingest(workspace_id, file, mapping, claim_type) -> IngestionResult
-        # Parse full file, create members/providers on-the-fly,
-        # insert claims, update workspace.claim_count
-```
-
-### 2C. Workspace API router: `app/api/workspaces.py`
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/workspaces` | List all workspaces |
-| POST | `/api/workspaces` | Create new workspace |
-| GET | `/api/workspaces/{id}` | Get workspace detail |
-| DELETE | `/api/workspaces/{id}` | Archive workspace |
-| POST | `/api/workspaces/{id}/upload/preview` | Upload CSV, get column preview |
-| POST | `/api/workspaces/{id}/upload/ingest` | Confirm mapping, ingest data |
-
-### 2D. Wire workspace filtering into ALL existing endpoints
-
-Every existing query gets an optional `?workspace_id=` query param.
-- If provided → filter to that workspace only
-- If omitted → show all (backward compatible)
-
-Touch points:
-- `app/api/claims.py` — add workspace filter to list + detail
-- `app/api/cases.py` — add workspace filter to list
-- `app/api/dashboard.py` — add workspace filter to overview, trends, providers
-- `app/api/pipeline.py` — add workspace filter to run-full + status
-- `app/api/audit.py` — no change (audit is global)
-- `app/api/rules.py` — no change (rules are global, shared across workspaces)
-
-Implementation pattern (minimal, DRY):
-```python
-# app/api/deps.py — new helper
-def workspace_filter(query, model, workspace_id: str | None):
-    if workspace_id:
-        ws = await get_workspace(workspace_id)
-        return query.where(model.workspace_id == ws.id)
-    return query
-```
-
-### 2E. Update pipeline to respect workspace
-
-`app/api/pipeline.py` run-full:
-- Accept optional `workspace_id` in request body
-- Pass through to enrichment, rule engine, scoring, case creation
-- All created rule_results, risk_scores, cases get tagged with workspace_id
-
-### Files touched:
-- `backend/app/upload/` (NEW directory)
-- `backend/app/upload/column_maps.py` (NEW)
-- `backend/app/services/upload_service.py` (NEW)
-- `backend/app/api/workspaces.py` (NEW)
-- `backend/app/api/claims.py` (add workspace_id filter)
-- `backend/app/api/cases.py` (add workspace_id filter)
-- `backend/app/api/dashboard.py` (add workspace_id filter)
-- `backend/app/api/pipeline.py` (add workspace_id to request + filter)
-- `backend/app/api/deps.py` (add workspace_filter helper)
-- `backend/app/main.py` (register workspace router)
-- `backend/app/engine/enrichment.py` (workspace-scoped historical queries)
-- `backend/app/engine/case_manager.py` (tag cases with workspace_id)
-
-### How to test:
-```bash
-# Create workspace
-curl -X POST http://localhost:8000/api/workspaces \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Test Client", "client_name": "Test"}'
-
-# Upload preview
-curl -X POST http://localhost:8000/api/workspaces/ws-xxx/upload/preview \
-  -F "file=@sample_claims.csv" -F "claim_type=medical"
-
-# Ingest
-curl -X POST http://localhost:8000/api/workspaces/ws-xxx/upload/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"mapping": {...}, "claim_type": "medical"}'
-
-# Run pipeline on workspace
-curl -X POST http://localhost:8000/api/pipeline/run-full \
-  -H "Content-Type: application/json" \
-  -d '{"limit": 5000, "workspace_id": "ws-xxx"}'
-
-# Verify dashboard scoped
-curl http://localhost:8000/api/dashboard/overview?workspace_id=ws-xxx
-```
+### New dependencies:
+- `prometheus-client>=0.21.0`
 
 ---
 
-## Phase 3: Frontend — Workspace Switcher + Upload UI
+## Workstream 5: Pipeline Robustness
 
-**Goal:** Workspace dropdown in sidebar, upload wizard page, all pages respect active workspace.
+### 5A. Async Job Queue (ARQ + Redis)
+**New file:** `backend/app/services/job_queue.py`
 
-### 3A. Workspace context: `src/lib/workspace-context.tsx`
+- Use **ARQ** library (async Redis queue, natively async, lightweight)
+- Define pipeline as an ARQ task function
+- Expose new endpoint: `POST /api/pipeline/enqueue` — returns `job_id` immediately
+- Expose new endpoint: `GET /api/pipeline/jobs/{job_id}` — returns job status, progress, result
+- Store job progress in Redis hash: `pipeline:job:{job_id}` → `{status, phase, progress, claims_processed, errors, started_at, completed_at}`
+- Worker runs as a separate process (new entrypoint `worker.py`)
+- Keep existing `/run-full` and `/run-stream` endpoints for backward compatibility
+- Add `worker` service to `docker-compose.yml` (same image, different command)
 
-React Context that stores active workspace ID. All API calls include it.
+### 5B. Incremental Processing
+**File:** `backend/app/api/pipeline.py` + services
 
-```typescript
-// Provider wraps the app in layout.tsx
-// useWorkspace() hook returns { activeWorkspace, setActiveWorkspace, workspaces }
-```
+- Pipeline only picks up claims where `status != 'processed'` (already partially implemented)
+- Add `force_reprocess: bool = False` parameter to pipeline endpoints — when true, reprocesses all claims
+- Track `last_pipeline_run` timestamp per workspace in the Workspace model
+- On upload of new data, auto-mark workspace as needing reprocessing
 
-### 3B. Workspace switcher in sidebar
+### 5C. Data Quality Gates
+**New file:** `backend/app/services/data_quality.py`
 
-Dropdown at top of sidebar showing current workspace name.
-- Lists all workspaces
-- "Synthetic Demo" is default
-- "New Workspace" option at bottom → navigates to upload page
+- Pre-enrichment validation phase inserted at the start of the pipeline:
+  - **Duplicate detection**: Flag claims with identical (provider, member, service_date, cpt_code) or (member, fill_date, ndc_code)
+  - **Schema conformance**: Validate required fields are non-null, dates are valid, amounts are positive
+  - **Outlier detection**: Flag claims where `amount_billed` > 3 standard deviations from mean for that CPT/NDC
+  - **Referential integrity**: Verify provider_id and member_id exist in reference tables
+- Returns a quality report: `{total_claims, passed, failed, issues: [{claim_id, issue_type, detail}]}`
+- Pipeline can be configured to: `skip_invalid` (default), `halt_on_errors`, or `flag_only`
+- Quality report stored and returned in pipeline results
 
-### 3C. Update `src/lib/api.ts`
+### 5D. Pipeline Run Versioning
+**New model:** `PipelineRun` table
 
-Every API function gets optional `workspaceId` parameter:
-```typescript
-// Before:
-claims.list({ page, size })
+- Fields: `run_id` (UUID), `workspace_id`, `batch_id`, `started_at`, `completed_at`, `status`, `config_snapshot` (JSONB — captures rule weights, thresholds, scoring config at time of run), `stats` (JSONB — claims processed, cases created, etc.), `quality_report` (JSONB)
+- Every pipeline execution creates a PipelineRun record
+- Enables: "What rules/thresholds were in effect when this claim was scored?"
+- New endpoint: `GET /api/pipeline/runs` — list past runs with stats
+- New endpoint: `GET /api/pipeline/runs/{run_id}` — detail with config snapshot
 
-// After — workspace auto-injected from context:
-claims.list({ page, size, workspace_id: activeWorkspace })
-```
+### New dependencies:
+- `arq>=0.26.0` (async Redis job queue)
 
-### 3D. New page: `/upload` — Data Upload Wizard
-
-Three-step wizard:
-
-**Step 1: Create Workspace**
-- Name, client name (text inputs)
-- File drop zone (drag-and-drop CSV/XLSX)
-- Claim type toggle (Medical / Pharmacy)
-
-**Step 2: Column Mapping**
-- Left column: their CSV headers (detected)
-- Right column: dropdown of our required fields
-- Auto-mapped fields shown in green
-- Unmapped required fields shown in red
-- Preview table showing first 5 rows with mapped column names
-
-**Step 3: Confirm & Ingest**
-- Summary: "Ready to import 12,450 medical claims for Acme Insurance"
-- Validation results (X rows valid, Y rows with issues)
-- "Start Import" button
-- Progress bar during ingestion
-- On complete → auto-run pipeline → redirect to dashboard
-
-### 3E. Update sidebar navigation
-
-Add "Upload Data" link with Upload icon between existing nav items.
-
-### Files touched:
-- `frontend/src/lib/workspace-context.tsx` (NEW)
-- `frontend/src/app/layout.tsx` (wrap with WorkspaceProvider)
-- `frontend/src/components/layout/sidebar.tsx` (add workspace dropdown + upload link)
-- `frontend/src/lib/api.ts` (add workspace endpoints, update all existing calls)
-- `frontend/src/app/upload/page.tsx` (NEW — 3-step wizard)
-- `frontend/src/app/upload/` (NEW directory)
-
-### How to test:
-1. Open http://localhost:3000 — sidebar shows "Synthetic Demo" as default workspace
-2. Switch workspace → all pages refresh with filtered data
-3. Click "Upload Data" → wizard appears
-4. Upload a sample CSV → auto-mapping works → ingest → pipeline runs → dashboard shows client data
+### New migration:
+- Add `pipeline_runs` table
 
 ---
 
-## Phase 4: Rule Trace View (Transparency Feature A)
+## Workstream 7: AI Agent Intelligence
 
-**Goal:** For any flagged claim, show a step-by-step breakdown of exactly which rules fired and why.
+### 7A. Conversation Memory (DB-Backed Sessions)
+**New model:** `ChatSession` and `ChatMessage` tables
 
-### 4A. Backend: Enhanced rule result response
+- `ChatSession`: `session_id` (UUID), `workspace_id`, `created_at`, `updated_at`, `title` (auto-generated from first message), `case_id` (optional — pins session to a case)
+- `ChatMessage`: `id`, `session_id` (FK), `role` (user/assistant), `content`, `sources_cited` (JSONB), `model_used`, `created_at`
+- New endpoints:
+  - `POST /api/agents/sessions` — create new session
+  - `GET /api/agents/sessions` — list sessions (by workspace)
+  - `GET /api/agents/sessions/{session_id}` — get session with messages
+  - `DELETE /api/agents/sessions/{session_id}` — delete session
+- Modify `POST /api/agents/chat` to accept `session_id` — if provided, loads last N messages as conversation history and includes them in the LLM prompt
+- LLM receives conversation history as alternating user/assistant messages (standard chat format)
+- Cap history at last 20 messages to stay within context window
+- Frontend: sidebar with session list, create new chat, switch between sessions
 
-The data already exists in `rule_results.evidence` (JSONB) and `rule_results.details`. We need a dedicated endpoint that returns it in a presentation-friendly format.
+### 7B. Tool-Use Pattern (Function Calling)
+**File:** `backend/app/services/agent_service.py`
 
-New endpoint in `app/api/claims.py`:
-```
-GET /api/claims/{claim_id}/rule-trace
-```
+- Instead of only pre-querying everything, define **tools** the LLM can call:
+  - `query_pipeline_stats()` — returns claim counts, case counts, risk breakdown
+  - `query_cases(risk_level?, status?, limit?)` — search/filter investigation cases
+  - `query_case_detail(case_id)` — full case context
+  - `query_rules(triggered_only?, limit?)` — rule stats
+  - `query_provider(npi?)` — provider lookup
+  - `run_pipeline(workspace_id)` — trigger pipeline execution
+- Implement a **ReAct loop**:
+  1. Send user message + tool definitions to LLM
+  2. If LLM responds with a tool call → execute it, append result, re-call LLM
+  3. If LLM responds with text → return to user
+  4. Max 5 iterations to prevent infinite loops
+- For Ollama models that don't support native function calling: use a prompt-based tool-use format (describe tools in system prompt, parse structured output)
+- Keep the existing RAG approach as a fast-path: if the question clearly matches a known pattern (stats, top risk, etc.), pre-fetch data without waiting for tool calls
 
-Response:
-```json
-{
-  "claim_id": "MCL-2025-004721",
-  "total_score": 87,
-  "risk_level": "critical",
-  "steps": [
-    {
-      "step": 1,
-      "rule_id": "M3",
-      "rule_name": "High Volume Provider",
-      "category": "Phantom Billing",
-      "triggered": true,
-      "severity": 2.4,
-      "confidence": 0.92,
-      "weight": 8.0,
-      "contribution": 30.2,
-      "explanation": "Dr. Smith billed 47 patients on Jan 15. Average for Cardiology is 18. This is 2.6x above the threshold of 30.",
-      "evidence": {
-        "daily_count": 47,
-        "specialty_average": 18,
-        "threshold": 30,
-        "ratio": 2.6
-      }
-    },
-    {
-      "step": 2,
-      "rule_id": "M1",
-      "rule_name": "Upcoding",
-      "triggered": true,
-      ...
-    },
-    {
-      "step": 3,
-      "rule_id": "M12",
-      "rule_name": "Weekend Billing",
-      "triggered": false,
-      "explanation": "Service date was a weekday. No anomaly detected."
-    }
-  ],
-  "score_calculation": {
-    "raw_score": 72.3,
-    "max_possible": 83.1,
-    "normalized_score": 87,
-    "formula": "SUM(weight × severity × confidence) / max_possible × 100"
-  }
-}
-```
+### 7C. Streaming Chat Responses
+**File:** `backend/app/api/agents.py` + `backend/app/services/agent_service.py`
 
-Implementation: Join rule_results with rules table, format evidence into human-readable explanation strings. The `_explanation_for_rule()` helper maps each rule_id to a template string that fills in evidence values.
+- New endpoint: `POST /api/agents/chat/stream` — returns Server-Sent Events
+- Modify `_call_ollama` to support `stream=True` — Ollama returns token-by-token
+- Stream tokens to client as SSE events: `data: {"token": "The", "done": false}`
+- Final event includes full response, sources, model: `data: {"done": true, "response": "...", "sources_cited": [...]}`
+- Frontend: `EventSource` or `fetch` with ReadableStream to consume SSE and render tokens incrementally
 
-### 4B. Frontend: Rule Trace component
+### 7D. Workspace-Scoped Guardrails
+**File:** `backend/app/services/agent_service.py`
 
-New component: `src/components/rule-trace.tsx`
+- **All database queries in `_gather_data_context` and `_gather_case_context` filter by workspace_id** (passed through from the chat request)
+- Add `workspace_id` parameter to `chat()` and `investigate_case()` methods
+- Validate that the requested `case_id` belongs to the active workspace
+- System prompt includes: "You are scoped to workspace {workspace_name}. Only reference data from this workspace."
+- Post-processing: scan LLM output for case IDs that don't belong to the workspace (defense-in-depth)
 
-Visual design:
-- Vertical stepper / timeline layout
-- Each step is a card with:
-  - Rule badge (M3, P5, etc.) with color coding
-  - Rule name + category
-  - TRIGGERED (red) or PASSED (green) badge
-  - Human-readable explanation paragraph
-  - Expandable "Raw Evidence" section (JSON)
-  - Contribution bar showing how much this rule added to final score
-- Final "Score Calculation" card at bottom showing the math
+### 7E. Citation Linking
+**File:** `backend/app/services/agent_service.py`
 
-### 4C. Integrate into existing pages
+- When the LLM references a case ID (e.g., `CASE-001234`), wrap it in a markdown link: `[CASE-001234](/cases/CASE-001234)`
+- Similarly for rule IDs: `[RULE-MED-001](/rules/RULE-MED-001)`
+- Post-process the LLM response with regex to find and linkify known entity patterns
+- Frontend already renders markdown via `react-markdown`, so links will be clickable
 
-- **Claim detail slide-out** (`/claims` page): Replace the current basic rule results list with the Rule Trace component
-- **Case detail page** (`/cases/[id]`): Replace "Rules Triggered" section with Rule Trace component
+### 7F. Confidence Indicator on Chat
+**File:** `backend/app/services/agent_service.py` + API schema
 
-### Files touched:
-- `backend/app/api/claims.py` (new `/rule-trace` endpoint)
-- `backend/app/services/rule_trace.py` (NEW — explanation generation logic)
-- `frontend/src/components/rule-trace.tsx` (NEW)
-- `frontend/src/lib/api.ts` (add `claims.ruleTrace(claimId)`)
-- `frontend/src/app/claims/page.tsx` (use RuleTrace in detail panel)
-- `frontend/src/app/cases/[id]/page.tsx` (use RuleTrace in rules section)
+- Add `confidence: str` field to ChatResponse: `"high"` (answer from DB data), `"medium"` (LLM with data context), `"low"` (LLM without data / fallback)
+- Determined by: which sources were used, whether LLM had data context, whether it's a fallback response
+- Frontend shows a subtle indicator: green dot (high), yellow (medium), orange (low)
 
-### How to test:
-1. Open `/claims`, click a flagged claim → see Rule Trace instead of raw list
-2. Open `/cases/CASE-xxx` → see Rule Trace with step-by-step explanations
-3. Verify all 29 rules have readable explanation templates
-4. Verify score calculation section matches displayed total
+### New migration:
+- Add `chat_sessions` and `chat_messages` tables
+
+### Frontend changes:
+- Chat sidebar: session list, create new, switch sessions
+- Streaming message rendering (token-by-token appearance)
+- Confidence indicator on each message
+- Clickable entity links in responses
 
 ---
 
-## Phase 5: Live Pipeline Animation (Transparency Feature B)
+## File Change Summary
 
-**Goal:** When the pipeline runs, show real-time progress with streaming updates.
+### New files:
+| File | Workstream | Purpose |
+|------|-----------|---------|
+| `backend/app/middleware/__init__.py` | 2 | Package init |
+| `backend/app/middleware/rate_limit.py` | 2 | Redis rate limiting |
+| `backend/app/middleware/security_headers.py` | 2 | Security response headers |
+| `backend/app/services/encryption_service.py` | 2 | PII AES-256 encryption |
+| `backend/app/middleware/logging_config.py` | 4 | JSON structured logging |
+| `backend/app/middleware/request_context.py` | 4 | Request ID + timing |
+| `backend/app/middleware/metrics.py` | 4 | Prometheus collection |
+| `backend/app/api/metrics.py` | 4 | /metrics endpoint |
+| `backend/app/services/job_queue.py` | 5 | ARQ job queue |
+| `backend/app/services/data_quality.py` | 5 | Pre-pipeline validation |
+| `backend/app/models/pipeline_run.py` | 5 | PipelineRun model |
+| `backend/app/models/chat.py` | 7 | ChatSession + ChatMessage models |
+| `backend/worker.py` | 5 | ARQ worker entrypoint |
 
-### 5A. Backend: Server-Sent Events (SSE) endpoint
+### Modified files:
+| File | Workstream | Changes |
+|------|-----------|---------|
+| `backend/app/config.py` | 2 | Env validation, new settings |
+| `backend/app/main.py` | 2, 4 | Register middleware, expand health check, tighten CORS |
+| `backend/app/services/upload_service.py` | 2 | CSV sanitization |
+| `nginx/nginx.conf` | 2 | Security headers (HSTS, CSP) |
+| `backend/app/api/pipeline.py` | 5 | Enqueue endpoint, incremental flag, run versioning |
+| `backend/app/services/agent_service.py` | 7 | Tool-use, memory, streaming, guardrails, citations |
+| `backend/app/api/agents.py` | 7 | Session endpoints, streaming, workspace param |
+| `backend/app/models/__init__.py` | 5, 7 | Export new models |
+| `backend/pyproject.toml` | 2, 4, 5 | New dependencies |
+| `docker-compose.yml` | 5 | Worker service |
+| `frontend/src/lib/api.ts` | 7 | Session + streaming interfaces |
+| `frontend/src/app/agents/page.tsx` | 7 | Session UI, streaming, confidence |
 
-New endpoint in `app/api/pipeline.py`:
-```
-POST /api/pipeline/run-stream
-```
+### New migrations:
+- `add_pipeline_runs_table.py`
+- `add_chat_sessions_and_messages.py`
 
-Returns `text/event-stream` with progress events:
-```
-event: phase
-data: {"phase": "enrichment", "label": "Enriching claims", "progress": 0}
-
-event: progress
-data: {"phase": "enrichment", "current": 500, "total": 2000, "progress": 25}
-
-event: progress
-data: {"phase": "rules", "current": 14500, "total": 58000, "progress": 25, "detail": "Rule M7 — Upcoding: 45 triggered"}
-
-event: rule_fired
-data: {"rule_id": "M3", "claim_id": "MCL-2025-004721", "severity": 2.4}
-
-event: phase
-data: {"phase": "scoring", "label": "Calculating risk scores", "progress": 0}
-
-event: complete
-data: {"total_claims": 2000, "rules_evaluated": 58000, "cases_created": 312, "elapsed_seconds": 28.1}
-```
-
-Implementation: Refactor the existing `run_full_pipeline` to yield progress callbacks. Wrap in an async generator that produces SSE frames.
-
-### 5B. Frontend: Pipeline Monitor page enhancement
-
-Update the dashboard or create a pipeline section accessible from dashboard:
-
-New component: `src/components/pipeline-monitor.tsx`
-
-Visual design:
-- "Run Pipeline" button (already exists conceptually)
-- On click, shows a full-screen overlay / modal with:
-  - Phase indicators (4 phases): Enrich → Evaluate → Score → Create Cases
-  - Active phase highlighted with spinner
-  - Progress bar per phase (animated fill)
-  - Live counter: "14,500 / 58,000 rules evaluated"
-  - Scrolling log feed showing individual rule fires (latest 20)
-  - Final summary card when complete
-- Uses `EventSource` API to consume SSE stream
-
-### 5C. Add "Run Pipeline" button to dashboard
-
-On the dashboard page, add a prominent button that:
-- If workspace has unprocessed claims → "Run Pipeline (2,450 unscored claims)"
-- On click → opens pipeline monitor
-- When complete → dashboard auto-refreshes with new data
-
-### Files touched:
-- `backend/app/api/pipeline.py` (new SSE endpoint)
-- `backend/app/engine/pipeline_runner.py` (NEW — refactored pipeline with progress callbacks)
-- `frontend/src/components/pipeline-monitor.tsx` (NEW)
-- `frontend/src/app/page.tsx` (add Run Pipeline button)
-- `frontend/src/lib/api.ts` (add pipeline.runStream helper)
-
-### How to test:
-1. Upload new client data (unscored)
-2. Click "Run Pipeline" on dashboard
-3. Watch progress bars fill in real-time
-4. See individual rules firing in the log feed
-5. Pipeline completes → dashboard auto-refreshes with new numbers
-
----
-
-## Phase 6: Compare to Peers (Transparency Feature C)
-
-**Goal:** For any flagged provider, show how they compare against specialty peers.
-
-### 6A. Backend: Peer comparison endpoint
-
-New endpoint in `app/api/providers.py` (NEW router):
-```
-GET /api/providers/{npi}/peer-comparison?workspace_id=ws-xxx
-```
-
-Response:
-```json
-{
-  "provider": {
-    "npi": "1234567890",
-    "name": "Dr. John Smith",
-    "specialty": "Cardiology"
-  },
-  "peer_group": "Cardiology (n=45)",
-  "metrics": [
-    {
-      "metric": "Avg Charge per Visit",
-      "provider_value": 487.00,
-      "peer_average": 215.00,
-      "peer_p75": 280.00,
-      "peer_p90": 340.00,
-      "percentile": 98,
-      "anomaly": true
-    },
-    {
-      "metric": "Daily Patient Volume",
-      "provider_value": 47,
-      "peer_average": 18,
-      "peer_p75": 24,
-      "peer_p90": 31,
-      "percentile": 99,
-      "anomaly": true
-    },
-    {
-      "metric": "99215 (High Complexity) Rate",
-      "provider_value": 0.94,
-      "peer_average": 0.22,
-      "peer_p75": 0.30,
-      "peer_p90": 0.38,
-      "percentile": 99,
-      "anomaly": true
-    },
-    {
-      "metric": "Unique Members per Month",
-      "provider_value": 312,
-      "peer_average": 95,
-      ...
-    }
-  ]
-}
-```
-
-Implementation: Aggregate claim statistics per provider, grouped by specialty. Calculate percentiles. Compare target provider against their specialty cohort.
-
-### 6B. Frontend: Peer Comparison component
-
-New component: `src/components/peer-comparison.tsx`
-
-Visual design:
-- Horizontal bar chart for each metric
-- Three markers on each bar: peer avg (gray line), peer p90 (yellow line), provider (red dot if anomaly, green if normal)
-- Provider value labeled explicitly
-- Percentile badge on right side
-- "98th percentile" in red = clearly anomalous
-
-### 6C. Integrate into existing pages
-
-- **Case detail page**: Add "Provider Profile" section with peer comparison
-- **Dashboard top providers table**: Click a provider → expand row to show peer comparison inline
-- **Claims detail panel**: Show mini peer comparison for the claim's provider
-
-### Files touched:
-- `backend/app/api/providers.py` (NEW router)
-- `backend/app/services/peer_comparison.py` (NEW)
-- `backend/app/main.py` (register provider router)
-- `frontend/src/components/peer-comparison.tsx` (NEW)
-- `frontend/src/lib/api.ts` (add providers.peerComparison)
-- `frontend/src/app/cases/[id]/page.tsx` (add Provider Profile section)
-- `frontend/src/app/page.tsx` (expandable provider rows)
-
-### How to test:
-1. Open a case → see Provider Profile section with peer comparison bars
-2. Verify anomalous metrics are highlighted in red
-3. Verify percentiles are mathematically correct
-4. Check with a low-risk provider — bars should show green/normal
-
----
-
-## Phase 7: Confidence Indicators (Transparency Feature E)
-
-**Goal:** Show how confident the system is in each flag, backed by historical pattern matching.
-
-### 7A. Backend: Pattern matching stats
-
-New service: `app/services/pattern_confidence.py`
-
-For each case, analyze the combination of triggered rules and compare to historical outcomes:
-```python
-async def calculate_pattern_confidence(case_id: str) -> PatternConfidence:
-    # 1. Get the set of triggered rules for this case
-    # 2. Find all historical cases with similar rule combinations
-    #    (jaccard similarity > 0.6 on triggered rule sets)
-    # 3. Of those, how many were resolved as confirmed fraud?
-    # 4. Return confidence stats
-```
-
-New field on case detail response:
-```json
-{
-  "pattern_confidence": {
-    "score": 0.91,
-    "similar_cases_count": 847,
-    "confirmed_fraud_count": 772,
-    "description": "91% of cases with similar patterns (high volume + upcoding) were confirmed fraudulent",
-    "matching_patterns": ["High Volume Provider", "Upcoding"],
-    "data_basis": "Based on 847 historical cases in this workspace"
-  }
-}
-```
-
-For demo/synthetic data: Pre-compute pattern outcomes during seeding so confidence stats are meaningful. Mark some resolved cases as confirmed fraud during seed.
-
-### 7B. Seed enhancement: Add resolved case outcomes
-
-Update `app/seed/synthetic_data.py` or add `app/seed/case_outcomes.py`:
-- After pipeline runs on seed data, auto-resolve ~60% of cases
-- Mark ~70% of resolved high/critical as "confirmed_fraud"
-- Mark remaining as "false_positive" or "insufficient_evidence"
-- This gives the confidence engine historical data to work with
-
-### 7C. Frontend: Confidence indicator component
-
-New component: `src/components/confidence-indicator.tsx`
-
-Visual design:
-- Circular gauge (like a speedometer) showing confidence percentage
-- Color: green (>80%), yellow (50-80%), red (<50%)
-- Text below: "91% — Based on 847 similar cases"
-- Expandable detail: "772 of 847 cases with this pattern combination (High Volume + Upcoding) were confirmed fraudulent"
-
-### 7D. Integrate into case detail page
-
-Add Confidence Indicator to the right column of case detail, above the Actions panel. It's the first thing an investigator sees — "how confident should I be that this is real fraud?"
-
-### Files touched:
-- `backend/app/services/pattern_confidence.py` (NEW)
-- `backend/app/api/cases.py` (add pattern_confidence to case detail response)
-- `backend/app/seed/synthetic_data.py` (add case outcome generation)
-- `frontend/src/components/confidence-indicator.tsx` (NEW)
-- `frontend/src/app/cases/[id]/page.tsx` (add confidence indicator)
-- `frontend/src/lib/api.ts` (update CaseDetail interface)
-
-### How to test:
-1. Open a case detail → see confidence gauge
-2. Verify percentage matches actual similar-case ratio
-3. Check a low-risk case → should show lower confidence
-4. Check edge case: new workspace with no history → shows "Insufficient history" instead of gauge
-
----
-
-## Build Order & Dependencies
-
-```
-Phase 1 ──→ Phase 2 ──→ Phase 3
-  (DB)        (API)      (Frontend)
-                           ↓
-              Phase 4 (Rule Trace) ← independent, can start after Phase 1
-                           ↓
-              Phase 5 (Live Pipeline) ← needs Phase 2 pipeline refactor
-                           ↓
-              Phase 6 (Peer Comparison) ← independent
-                           ↓
-              Phase 7 (Confidence) ← needs seeded case outcomes
-```
-
-Phases 4 and 6 are independent and can be built in parallel.
-Phase 5 depends on Phase 2 (pipeline workspace awareness).
-Phase 7 depends on Phase 1 (needs case history in DB).
-
-## Total new files: ~15
-## Total modified files: ~20
-## New DB tables: 1 (workspaces)
-## Modified DB tables: 8 (add workspace_id)
-## New API endpoints: ~10
-## New frontend pages: 1 (/upload)
-## New frontend components: 4 (rule-trace, pipeline-monitor, peer-comparison, confidence-indicator)
+### New dependencies:
+- `cryptography>=43.0.0` (encryption)
+- `prometheus-client>=0.21.0` (metrics)
+- `arq>=0.26.0` (async job queue)
