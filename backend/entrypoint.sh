@@ -35,14 +35,35 @@ else:
     print(f'  DB already has {count} medical claims — skipping seed')
     exit(1)
 " && {
-    echo "  Seeding reference data..."
-    python -m app.seed.reference_data
-    echo "  Seeding rule configs..."
-    python -m app.seed.seed_rules
-    echo "  Seeding synthetic claims..."
-    python -m app.seed.seed_claims
+    echo "  Seeding all data (reference, rules, providers, members, claims)..."
+    python -m app.seed.synthetic_data
     echo "  ✓ Seed data loaded"
 } || echo "  ✓ Seed data already exists"
+
+# 2b. Verify seed worked — if not, abort early
+python -c "
+import asyncio
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from app.config import settings
+from app.models.claim import MedicalClaim
+
+async def check():
+    engine = create_async_engine(settings.database_url)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    async with Session() as session:
+        count = (await session.execute(select(func.count()).select_from(MedicalClaim))).scalar()
+    await engine.dispose()
+    return count
+
+count = asyncio.run(check())
+if count == 0:
+    print('  ⚠ WARNING: Database has 0 claims after seeding!')
+    exit(1)
+else:
+    print(f'  ✓ Database has {count} claims')
+    exit(0)
+"
 
 # 3. Run initial pipeline if no scores exist
 echo "[3/4] Checking pipeline status..."
