@@ -13,6 +13,9 @@ Features:
 - Citation linking (case/rule IDs → markdown links)
 - Confidence indicator (high/medium/low)
 - Streaming support
+- TAO: Orchestration controller, lineage tracking, capability tokens, audit receipts
+- CAPC: Compliance IR compilation, validation, evidence packet generation
+- ODA-RAG: Signal monitoring, drift detection, adaptive parameter tuning
 """
 
 import json
@@ -41,6 +44,25 @@ from app.auth.data_classification import (
     Sensitivity, can_access_tool,
     max_sensitivity_for_permissions, redact_financial_for_tier,
 )
+
+# TAO — Trust-Aware Agent Orchestration
+from app.tao.orchestration import OrchestrationController, OrchestrationDecision
+from app.tao.lineage import LineageService
+from app.tao.audit_receipts import AuditReceiptService
+
+# CAPC — Compliance-Aware Prompt Compiler
+from app.capc.compiler import ComplianceIRCompiler
+from app.capc.validator import IRValidator
+from app.capc.evidence import EvidencePacketGenerator
+from app.capc.exception_router import ExceptionRouter, ExceptionAction
+from app.capc.policy_graph import PolicyGraph
+
+# ODA-RAG — Observability-Driven Adaptive RAG
+from app.oda_rag.signals import RAGSignalCollector, SignalType
+from app.oda_rag.drift_detector import DriftDetector
+from app.oda_rag.adaptive_controller import AdaptiveController, AdaptationAction
+from app.oda_rag.parameter_updaters import ParameterUpdaters, RAGParameters
+from app.oda_rag.learner import ClosedLoopLearner
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +132,26 @@ class AgentService:
             self._max_tier = max_sensitivity_for_permissions(ctx.permissions)
         else:
             self._max_tier = Sensitivity.RESTRICTED  # default: full access (backward compat)
+
+        # ── TAO: Trust-Aware Agent Orchestration ──
+        self._orchestrator = OrchestrationController(session, workspace_id)
+        self._lineage = LineageService(session, workspace_id)
+        self._receipts = AuditReceiptService(session)
+        self._agent_id = f"agent:{self.model}"
+
+        # ── CAPC: Compliance-Aware Prompt Compiler ──
+        self._ir_compiler = ComplianceIRCompiler()
+        self._ir_validator = IRValidator(PolicyGraph())
+        self._evidence_gen = EvidencePacketGenerator(session)
+        self._exception_router = ExceptionRouter()
+
+        # ── ODA-RAG: Observability-Driven Adaptive RAG ──
+        self._signal_collector = RAGSignalCollector(session, workspace_id)
+        self._drift_detector = DriftDetector()
+        self._adaptive_controller = AdaptiveController(session, workspace_id)
+        self._param_updaters = ParameterUpdaters()
+        self._learner = ClosedLoopLearner(session, self._drift_detector, workspace_id)
+        self._rag_params = RAGParameters(llm_model=self.model)
 
     # ------------------------------------------------------------------
     # Ollama
@@ -213,6 +255,8 @@ class AgentService:
     # ------------------------------------------------------------------
 
     async def _execute_tool(self, tool_name: str, args: dict) -> str:
+        t_tool_start = time.time()
+
         # ── CAPC policy check: verify caller can access this tool's sensitivity tier ──
         if self.ctx and not can_access_tool(self.ctx.permissions, tool_name):
             logger.warning("Tool %s blocked for user %s (tier: %s)",
@@ -223,25 +267,101 @@ class AgentService:
                          f"Contact your administrator for elevated permissions."
             })
 
-        if tool_name == "query_pipeline_stats":
-            return await self._tool_pipeline_stats()
-        elif tool_name == "query_cases":
-            return await self._tool_query_cases(args)
-        elif tool_name == "query_case_detail":
-            return await self._tool_case_detail(args.get("case_id", ""))
-        elif tool_name == "query_rules":
-            return await self._tool_query_rules(args)
-        elif tool_name == "query_provider":
-            return await self._tool_query_provider(args.get("npi", ""))
-        elif tool_name == "query_financial_summary":
-            raw = await self._tool_financial_summary()
-            # Apply tier-based redaction to financial data
-            if self._max_tier < Sensitivity.RESTRICTED:
-                data = json.loads(raw)
-                data = redact_financial_for_tier(data, self._max_tier)
-                return json.dumps(data)
-            return raw
-        return f"Unknown tool: {tool_name}"
+        # ── TAO: Evaluate action through orchestration controller ──
+        orch_decision = await self._orchestrator.evaluate_action(
+            agent_id=self._agent_id,
+            action=tool_name,
+            resource_scope={"tool": tool_name, "args": args,
+                            "workspace_id": self.workspace_id},
+        )
+        if not orch_decision.allowed:
+            logger.warning("TAO denied %s for %s: %s",
+                           tool_name, self._agent_id, orch_decision.reason)
+            return json.dumps({
+                "error": f"Action denied by orchestration controller: {orch_decision.reason}. "
+                         f"Risk score: {orch_decision.risk_result.action_risk_score:.3f} "
+                         f"({orch_decision.risk_result.risk_tier.value})."
+            })
+
+        # Execute the tool
+        result: str
+        success = True
+        error_msg: str | None = None
+        try:
+            if tool_name == "query_pipeline_stats":
+                result = await self._tool_pipeline_stats()
+            elif tool_name == "query_cases":
+                result = await self._tool_query_cases(args)
+            elif tool_name == "query_case_detail":
+                result = await self._tool_case_detail(args.get("case_id", ""))
+            elif tool_name == "query_rules":
+                result = await self._tool_query_rules(args)
+            elif tool_name == "query_provider":
+                result = await self._tool_query_provider(args.get("npi", ""))
+            elif tool_name == "query_financial_summary":
+                raw = await self._tool_financial_summary()
+                # Apply tier-based redaction to financial data
+                if self._max_tier < Sensitivity.RESTRICTED:
+                    data = json.loads(raw)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    result = json.dumps(data)
+                else:
+                    result = raw
+            else:
+                result = f"Unknown tool: {tool_name}"
+        except Exception as e:
+            success = False
+            error_msg = str(e)
+            result = json.dumps({"error": f"Tool execution failed: {e}"})
+
+        duration_ms = int((time.time() - t_tool_start) * 1000)
+
+        # ── TAO: Record action outcome for trust updates ──
+        await self._orchestrator.record_action_outcome(
+            self._agent_id, tool_name, success, error_msg,
+        )
+
+        # ── TAO: Record lineage node ──
+        lineage_node = await self._lineage.record_node(
+            node_type="agent_action",
+            agent_id=self._agent_id,
+            action=f"tool:{tool_name}",
+            payload={"tool": tool_name, "args": args, "success": success},
+            trust_score=orch_decision.risk_result.action_risk_score,
+            capability_token_id=(
+                orch_decision.token.token_id if orch_decision.token else None
+            ),
+            duration_ms=duration_ms,
+        )
+
+        # ── TAO: Create attested audit receipt ──
+        await self._receipts.create_receipt(
+            action_type=f"tool_execution:{tool_name}",
+            agent_id=self._agent_id,
+            lineage_node_id=lineage_node.node_id,
+            input_data={"tool": tool_name, "args": args},
+            output_data={"result_preview": result[:500]},
+            output_summary={"success": success, "duration_ms": duration_ms},
+            capability_token_id=(
+                orch_decision.token.token_id if orch_decision.token else None
+            ),
+            token_scope_snapshot=(
+                orch_decision.token.resource_scope if orch_decision.token else {}
+            ),
+            action_risk_score=orch_decision.risk_result.action_risk_score,
+            agent_trust_score=orch_decision.risk_result.action_risk_score,
+            evidence={"tool": tool_name, "risk_tier": orch_decision.risk_result.risk_tier.value},
+        )
+
+        # ── ODA-RAG: Record retrieval signal ──
+        await self._signal_collector.record_signal(
+            SignalType.RETRIEVAL_HIT_RATE,
+            f"tool_{tool_name}_hit",
+            1.0 if success else 0.0,
+            {"tool": tool_name, "duration_ms": duration_ms},
+        )
+
+        return result
 
     async def _tool_pipeline_stats(self) -> str:
         med = (await self.session.execute(select(func.count()).select_from(MedicalClaim))).scalar() or 0
@@ -611,11 +731,32 @@ class AgentService:
     # ------------------------------------------------------------------
 
     async def investigate_case(self, case_id: str) -> InvestigationResult:
+        t_start = time.time()
+
+        # ── TAO: Evaluate investigation action ──
+        orch_decision = await self._orchestrator.evaluate_action(
+            agent_id=self._agent_id,
+            action="investigate_case",
+            resource_scope={"case_id": case_id, "workspace_id": self.workspace_id},
+        )
+
         context = await self._gather_case_context(case_id)
         if "error" in context:
             return InvestigationResult(case_id=case_id, summary=context["error"],
                                        findings=[], risk_assessment="", recommended_actions=[],
                                        confidence=0, model_used="none")
+
+        # ── TAO: Record lineage for investigation ──
+        lineage_node = await self._lineage.record_node(
+            node_type="agent_action",
+            agent_id=self._agent_id,
+            action=f"investigate:{case_id}",
+            payload={"case_id": case_id, "risk_level": context.get("risk_level")},
+            trust_score=orch_decision.risk_result.action_risk_score if orch_decision else None,
+            capability_token_id=(
+                orch_decision.token.token_id if orch_decision and orch_decision.token else None
+            ),
+        )
 
         system_prompt = (
             "You are an expert healthcare FWA investigator.\n"
@@ -647,6 +788,38 @@ class AgentService:
                     confidence=0.5, model_used=self.model)
         else:
             result = self._generate_fallback_analysis(case_id, context)
+
+        duration_ms = int((time.time() - t_start) * 1000)
+
+        # ── TAO: Record outcome and create audit receipt ──
+        await self._orchestrator.record_action_outcome(
+            self._agent_id, "investigate_case", True,
+        )
+        await self._receipts.create_receipt(
+            action_type="case_investigation",
+            agent_id=self._agent_id,
+            lineage_node_id=lineage_node.node_id,
+            input_data={"case_id": case_id},
+            output_data={"summary": result.summary[:500]},
+            output_summary={"confidence": result.confidence, "findings_count": len(result.findings)},
+            capability_token_id=(
+                orch_decision.token.token_id if orch_decision and orch_decision.token else None
+            ),
+            action_risk_score=orch_decision.risk_result.action_risk_score if orch_decision else None,
+            evidence={
+                "model": result.model_used,
+                "duration_ms": duration_ms,
+                "risk_level": context.get("risk_level"),
+            },
+        )
+
+        # ── ODA-RAG: Record investigation metrics ──
+        await self._signal_collector.record_llm_metrics(
+            latency_ms=float(duration_ms),
+            token_count=len(result.summary.split()),
+            confidence=result.confidence,
+            model=result.model_used,
+        )
 
         audit = AuditService(self.session)
         await audit.log_event(
@@ -702,7 +875,63 @@ class AgentService:
                    session_id: str | None = None) -> ChatResponse:
         t_start = time.time()
         sources: list[str] = []
+        lineage_node_ids: list[str] = []
+        compliance_ir = None
+        validation_result = None
+
         try:
+            # ── CAPC: Compile request to Compliance IR ──
+            compliance_ir = self._ir_compiler.compile(
+                request=message,
+                agent_id=self._agent_id,
+                workspace_id=self.workspace_id,
+            )
+            sources.append(f"capc:ir:{compliance_ir.ir_id}")
+
+            # ── CAPC: Validate IR against policy graph ──
+            if self.ctx:
+                validation_result = self._ir_validator.validate(compliance_ir, self.ctx)
+                if not validation_result.passed:
+                    # Route through exception router
+                    exception = self._exception_router.route_validation_failure(
+                        compliance_ir, validation_result,
+                    )
+                    logger.warning("CAPC validation failed for IR %s: %s",
+                                   compliance_ir.ir_id, exception.reason)
+
+                    # Generate evidence packet for the failed validation
+                    await self._evidence_gen.generate(
+                        ir=compliance_ir,
+                        validation_result=validation_result,
+                        exception_action=exception.action.value,
+                    )
+
+                    if exception.action == ExceptionAction.ABORT:
+                        return ChatResponse(
+                            response=f"**Access Restricted**\n\nYour request requires permissions "
+                                     f"that exceed your current role ({self.ctx.role.value}).\n\n"
+                                     f"Reason: {exception.reason}\n\n"
+                                     f"Contact your administrator for elevated access.",
+                            sources_cited=["capc:policy-violation"],
+                            confidence="high",
+                        )
+                    # REVIEW action: proceed but flag for post-hoc audit
+                    sources.append("capc:flagged-for-review")
+
+            # ── TAO: Record lineage node for chat request ──
+            chat_lineage = await self._lineage.record_node(
+                node_type="agent_action",
+                agent_id=self._agent_id,
+                action=f"chat:{message[:100]}",
+                payload={
+                    "message": message[:500],
+                    "case_id": case_id,
+                    "ir_id": compliance_ir.ir_id if compliance_ir else None,
+                    "sensitivity": compliance_ir.overall_sensitivity if compliance_ir else "INTERNAL",
+                },
+            )
+            lineage_node_ids.append(chat_lineage.node_id)
+
             history = []
             if session_id:
                 history = await self._load_session_history(session_id)
@@ -755,6 +984,41 @@ class AgentService:
                 duration = time.time() - t_start
                 agent_chat_requests_total.labels(model_used=self.model).inc()
                 agent_chat_duration_seconds.observe(duration)
+
+                # ── ODA-RAG: Record LLM metrics ──
+                await self._signal_collector.record_llm_metrics(
+                    latency_ms=duration * 1000,
+                    token_count=len(response.split()),
+                    confidence=0.8 if tool_sources else 0.6,
+                    model=self.model,
+                )
+
+                # ── ODA-RAG: Check for drift and adapt ──
+                await self._check_drift_and_adapt()
+
+                # ── CAPC: Generate evidence packet ──
+                if compliance_ir and validation_result:
+                    await self._evidence_gen.generate(
+                        ir=compliance_ir,
+                        validation_result=validation_result,
+                        execution_results={"response_preview": response[:500],
+                                           "sources": sources},
+                        lineage_node_ids=lineage_node_ids,
+                        model_versions={"slm": self.model},
+                    )
+
+                # ── TAO: Create audit receipt for chat completion ──
+                await self._receipts.create_receipt(
+                    action_type="chat_response",
+                    agent_id=self._agent_id,
+                    lineage_node_id=chat_lineage.node_id,
+                    input_data={"message": message[:500]},
+                    output_data={"response_preview": response[:500]},
+                    output_summary={"model": self.model, "sources_count": len(sources)},
+                    evidence={"ir_id": compliance_ir.ir_id if compliance_ir else None,
+                              "sensitivity": compliance_ir.overall_sensitivity if compliance_ir else None},
+                )
+
                 return ChatResponse(response=response, sources_cited=sources,
                                     model_used=self.model, confidence="high" if sources else "medium")
 
@@ -764,6 +1028,15 @@ class AgentService:
             duration = time.time() - t_start
             agent_chat_requests_total.labels(model_used="data-engine").inc()
             agent_chat_duration_seconds.observe(duration)
+
+            # ── ODA-RAG: Record metrics for data-engine fallback ──
+            await self._signal_collector.record_llm_metrics(
+                latency_ms=duration * 1000,
+                token_count=len(result.response.split()),
+                confidence=0.9,
+                model="data-engine",
+            )
+
             return result
 
         except Exception as exc:
@@ -771,6 +1044,28 @@ class AgentService:
             return ChatResponse(
                 response=f"Error: {type(exc).__name__}: {exc}. Please try again.",
                 sources_cited=sources, model_used="error-fallback", confidence="low")
+
+    async def _check_drift_and_adapt(self) -> None:
+        """ODA-RAG: Check for drift in RAG signals and adapt parameters if needed."""
+        try:
+            snapshot = self._signal_collector.get_recent_snapshot()
+            drift_result = self._drift_detector.detect(snapshot)
+
+            if drift_result.drift_detected or drift_result.anomaly_detected:
+                decision = self._adaptive_controller.decide(drift_result)
+                if decision.actions and decision.actions[0] != AdaptationAction.NO_ACTION:
+                    old_params = self._rag_params.copy()
+                    self._rag_params = self._param_updaters.apply_all(
+                        self._rag_params, decision.actions, drift_result,
+                    )
+                    await self._adaptive_controller.apply_and_record(
+                        decision, old_params, self._rag_params,
+                    )
+                    logger.info("ODA-RAG adapted: %s (drift=%.3f)",
+                                [a.value for a in decision.actions],
+                                drift_result.drift_score)
+        except Exception as e:
+            logger.warning("ODA-RAG drift check failed: %s", e)
 
     # ------------------------------------------------------------------
     # Streaming chat
