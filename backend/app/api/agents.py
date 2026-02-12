@@ -106,19 +106,23 @@ async def investigate_case(
     db: AsyncSession = Depends(get_db),
 ) -> InvestigateResponse:
     """AI agent investigates a case and produces a structured analysis."""
-    agent = AgentService(db)
-    result = await agent.investigate_case(body.case_id)
+    try:
+        agent = AgentService(db)
+        result = await agent.investigate_case(body.case_id)
 
-    return InvestigateResponse(
-        case_id=result.case_id,
-        summary=result.summary,
-        findings=result.findings,
-        risk_assessment=result.risk_assessment,
-        recommended_actions=result.recommended_actions,
-        confidence=result.confidence,
-        model_used=result.model_used,
-        generated_at=result.generated_at,
-    )
+        return InvestigateResponse(
+            case_id=result.case_id,
+            summary=result.summary,
+            findings=result.findings,
+            risk_assessment=result.risk_assessment,
+            recommended_actions=result.recommended_actions,
+            confidence=result.confidence,
+            model_used=result.model_used,
+            generated_at=result.generated_at,
+        )
+    except Exception as exc:
+        logger.error("Investigate failed for %s: %s", body.case_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Investigation error: {exc}")
 
 
 @router.post("/chat", response_model=ChatResponseSchema)
@@ -127,11 +131,15 @@ async def agent_chat(
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponseSchema:
     """Interactive chat with the investigation assistant."""
-    agent = AgentService(db)
-    result = await agent.chat(body.message, body.case_id)
+    try:
+        agent = AgentService(db)
+        result = await agent.chat(body.message, body.case_id)
 
-    return ChatResponseSchema(
-        response=result.response,
-        sources_cited=result.sources_cited,
-        model_used=result.model_used,
-    )
+        return ChatResponseSchema(
+            response=result.response,
+            sources_cited=result.sources_cited,
+            model_used=result.model_used,
+        )
+    except Exception as exc:
+        logger.error("Chat failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Chat error: {exc}")

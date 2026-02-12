@@ -113,7 +113,11 @@ class AgentService:
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
-            async with httpx.AsyncClient(timeout=120.0) as client:
+
+            # Separate connect vs read timeout: model loading can be slow
+            timeout = httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                logger.info("Calling Ollama %s with %d chars prompt...", self.model, len(prompt))
                 resp = await client.post(
                     f"{self.ollama_url}/api/chat",
                     json={
@@ -126,9 +130,17 @@ class AgentService:
                 if resp.status_code == 200:
                     data = resp.json()
                     content = data.get("message", {}).get("content", "")
+                    logger.info("Ollama responded with %d chars", len(content))
                     return self._strip_think_tags(content)
+                else:
+                    logger.warning("Ollama returned %d: %s", resp.status_code, resp.text[:200])
+        except httpx.TimeoutException as e:
+            logger.warning("Ollama timed out: %s", e)
+            # Reset availability so next request re-checks
+            self._available = None
         except Exception as e:
-            logger.warning(f"Ollama call failed: {e}")
+            logger.warning("Ollama call failed: %s: %s", type(e).__name__, e)
+            self._available = None
         return None
 
     # ------------------------------------------------------------------
@@ -374,28 +386,38 @@ class AgentService:
         context_text = ""
         sources: list[str] = []
 
-        if case_id:
-            context = await self._gather_case_context(case_id)
-            if "error" not in context:
-                context_text = f"\n\nCase context:\n{json.dumps(context, indent=2, default=str)}"
-                sources.append(f"case:{case_id}")
-                for r in context.get("triggered_rules", []):
-                    sources.append(f"rule:{r['rule_id']}")
+        try:
+            if case_id:
+                context = await self._gather_case_context(case_id)
+                if "error" not in context:
+                    context_text = f"\n\nCase context:\n{json.dumps(context, indent=2, default=str)}"
+                    sources.append(f"case:{case_id}")
+                    for r in context.get("triggered_rules", []):
+                        sources.append(f"rule:{r['rule_id']}")
 
-        # Try LLM
-        system_prompt = (
-            "You are an AI assistant specializing in healthcare fraud, waste, and abuse (FWA) detection. "
-            "You help investigators analyze cases, explain fraud patterns, and provide guidance. "
-            "Be precise, reference specific data when available, and explain your reasoning."
-        )
-        prompt = f"{message}{context_text}"
-        response = await self._call_ollama(prompt, system_prompt)
+            # Try LLM
+            system_prompt = (
+                "You are an AI assistant specializing in healthcare fraud, waste, and abuse (FWA) detection. "
+                "You help investigators analyze cases, explain fraud patterns, and provide guidance. "
+                "Be precise, reference specific data when available, and explain your reasoning."
+            )
+            prompt = f"{message}{context_text}"
+            response = await self._call_ollama(prompt, system_prompt)
 
-        if response:
-            return ChatResponse(response=response, sources_cited=sources, model_used=self.model)
+            if response:
+                return ChatResponse(response=response, sources_cited=sources, model_used=self.model)
 
-        # Data-driven fallback
-        return await self._data_driven_chat(message, case_id, sources)
+            # Data-driven fallback
+            return await self._data_driven_chat(message, case_id, sources)
+
+        except Exception as exc:
+            logger.error("Chat error: %s", exc, exc_info=True)
+            return ChatResponse(
+                response=f"I encountered an error processing your request: {type(exc).__name__}: {exc}. "
+                         "Please try again or rephrase your question.",
+                sources_cited=sources,
+                model_used="error-fallback",
+            )
 
     # ------------------------------------------------------------------
     # Data-driven fallback chat
