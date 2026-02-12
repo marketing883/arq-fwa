@@ -385,13 +385,6 @@ export const pipeline = {
   runFull: (body: { limit?: number; workspace_id?: string | null }) =>
     fetchAPI<PipelineRunResponse>("/pipeline/run-full", { method: "POST", body: JSON.stringify(body) }),
   status: () => fetchAPI<Record<string, number>>("/pipeline/status"),
-  /** Returns an EventSource for streaming pipeline progress */
-  runStream: (body: { limit?: number; workspace_id?: string | null }): EventSource => {
-    // SSE via POST requires a fetch-based approach; we'll POST and consume the stream
-    // For simplicity, use the non-streaming endpoint from the UI and show progress via polling
-    // The actual SSE endpoint is available at /api/pipeline/run-stream
-    throw new Error("Use runStreamFetch instead");
-  },
 };
 
 // ── Providers ──
