@@ -40,8 +40,9 @@ router = APIRouter(prefix="/api/cases", tags=["cases"])
 
 # Valid status transitions: current_status -> set of allowed next statuses
 _VALID_TRANSITIONS: dict[str, set[str]] = {
-    "open": {"under_review"},
-    "under_review": {"resolved", "open"},
+    "open": {"under_review", "escalated"},
+    "under_review": {"resolved", "escalated", "open"},
+    "escalated": {"under_review", "resolved"},
     "resolved": {"closed", "under_review"},
     "closed": set(),  # terminal state
 }
@@ -121,7 +122,7 @@ async def _build_claim_summary(
 
 @router.get("", response_model=CaseListResponse)
 async def list_cases(
-    status: str | None = Query(None, pattern="^(open|under_review|resolved|closed)$"),
+    status: str | None = Query(None, pattern="^(open|under_review|escalated|resolved|closed)$"),
     priority: str | None = Query(None, pattern="^(P1|P2|P3|P4)$"),
     assigned_to: str | None = Query(None),
     page: int = Query(1, ge=1),
@@ -250,8 +251,8 @@ async def get_case(case_id: str, db: AsyncSession = Depends(get_db)):
             CaseEvidenceSchema(
                 id=e.id,
                 evidence_type=e.evidence_type,
-                description=e.title,
-                data=e.content or {},
+                title=e.title,
+                content=e.content or {},
                 created_at=e.created_at,
             )
             for e in case.evidence

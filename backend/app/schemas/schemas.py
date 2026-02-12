@@ -276,7 +276,7 @@ class CaseDetail(BaseModel):
 
 
 class CaseStatusUpdate(BaseModel):
-    status: str = Field(..., pattern="^(open|under_review|resolved|closed)$")
+    status: str = Field(..., pattern="^(open|under_review|escalated|resolved|closed)$")
     resolution_path: str | None = None
     resolution_notes: str | None = None
 

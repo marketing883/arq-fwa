@@ -466,42 +466,15 @@ async def process_batch(
     await db.flush()
 
     # ── 6. Auto-create investigation cases for high/critical ────────────
-    cases_created = 0
-    audit = AuditService(db)
-
-    for score in all_scores:
-        if score.risk_level in ("high", "critical"):
-            priority = "P1" if score.risk_level == "critical" else "P2"
-            sla_hours = 24 if priority == "P1" else 72
-            sla_deadline = datetime.utcnow() + timedelta(hours=sla_hours)
-
-            case = InvestigationCase(
-                case_id=f"CASE-{uuid4().hex[:8].upper()}",
-                claim_id=score.claim_id,
-                claim_type=score.claim_type,
-                risk_score=score.total_score,
-                risk_level=score.risk_level,
-                status="open",
-                priority=priority,
-                assigned_to=None,
-                resolution_path=None,
-                resolution_notes=None,
-                estimated_fraud_amount=None,
-                sla_deadline=sla_deadline,
-            )
-            db.add(case)
-            cases_created += 1
-
-            # Audit: case created
-            await audit.log_case_created(
-                case_id=case.case_id,
-                claim_id=score.claim_id,
-                risk_level=score.risk_level,
-            )
-
-    await db.flush()
+    from app.services.case_manager import CaseManager
+    case_manager = CaseManager(db)
+    new_cases = await case_manager.create_cases_from_scores(
+        all_scores, generate_evidence=True
+    )
+    cases_created = len(new_cases)
 
     # ── 7. Audit: batch processing event ────────────────────────────────
+    audit = AuditService(db)
     await audit.log_event(
         event_type="batch_processed",
         actor="system",
