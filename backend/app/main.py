@@ -5,6 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
+from app.api.dashboard import router as dashboard_router
+from app.api.claims import router as claims_router
+from app.api.rules import router as rules_router
+from app.api.cases import router as cases_router
+from app.api.scoring import router as scoring_router
+from app.api.audit import router as audit_router
 
 
 @asynccontextmanager
@@ -31,6 +37,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register API routers
+app.include_router(dashboard_router)
+app.include_router(claims_router)
+app.include_router(rules_router)
+app.include_router(cases_router)
+app.include_router(scoring_router)
+app.include_router(audit_router)
 
 
 @app.get("/api/health")

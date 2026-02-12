@@ -1,0 +1,20 @@
+"""
+API Dependencies — DB session, services.
+"""
+
+from typing import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import async_session
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Yield a DB session per request, commit on success, rollback on error."""
+    async with async_session() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
