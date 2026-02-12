@@ -183,7 +183,7 @@ RULES_SEED = [
      "description": "Excessive diagnosis codes per encounter to inflate complexity and reimbursement",
      "detection_logic": "Claim has > N distinct diagnosis codes (normal is 2-4 per encounter)",
      "weight": 4.0, "implementation_priority": "LOW",
-     "thresholds": {"max_diagnosis_codes": 6, "specialty_overrides": {"oncology": 8, "internal_medicine": 6}},
+     "thresholds": {"max_diagnosis_codes": 3, "specialty_overrides": {"oncology": 4, "internal_medicine": 4}},
      "benchmark_source": None},
 
     # ── Pharmacy Rules ──
