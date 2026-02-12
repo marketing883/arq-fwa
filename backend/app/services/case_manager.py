@@ -71,6 +71,8 @@ class CaseManager:
         scores: list[RiskScore],
         *,
         generate_evidence: bool = True,
+        workspace_id: int | None = None,
+        claim_ws_map: dict[str, int | None] | None = None,
     ) -> list[InvestigationCase]:
         """
         For each score with risk_level in [high, critical]:
@@ -98,6 +100,11 @@ class CaseManager:
             priority = "P1" if score.risk_level == "critical" else "P2"
             sla_hours = _SLA_HOURS[priority]
 
+            # Resolve workspace_id: per-claim map takes precedence, then fallback
+            case_ws_id = workspace_id
+            if claim_ws_map and score.claim_id in claim_ws_map:
+                case_ws_id = claim_ws_map[score.claim_id]
+
             case = InvestigationCase(
                 case_id=f"CASE-{uuid4().hex[:8].upper()}",
                 claim_id=score.claim_id,
@@ -107,6 +114,7 @@ class CaseManager:
                 status="open",
                 priority=priority,
                 sla_deadline=datetime.utcnow() + timedelta(hours=sla_hours),
+                workspace_id=case_ws_id,
             )
             self.session.add(case)
             cases_created.append(case)

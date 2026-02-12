@@ -151,12 +151,27 @@ async def run_full_pipeline(
     rules_saved += await rule_engine.save_results(med_results)
     rules_saved += await rule_engine.save_results(rx_results)
 
+    # Stamp workspace_id on all rule results (inherit from claims)
+    claim_ws_map: dict[str, int | None] = {}
+    for c in med_claims:
+        claim_ws_map[c.claim_id] = ws_id if ws_id is not None else c.workspace_id
+    for c in rx_claims:
+        claim_ws_map[c.claim_id] = ws_id if ws_id is not None else c.workspace_id
+    for rr_list in list(med_results.values()) + list(rx_results.values()):
+        for rr in rr_list:
+            rr.workspace_id = claim_ws_map.get(rr.claim_id)
+
     # ── 4. Score ─────────────────────────────────────────────────────────
     scoring = ScoringEngine(db)
     med_scores = await scoring.score_batch(med_results, "medical", batch_id) if med_results else []
     rx_scores = await scoring.score_batch(rx_results, "pharmacy", batch_id) if rx_results else []
 
     all_scores = med_scores + rx_scores
+
+    # Stamp workspace_id on all scores (inherit from claims)
+    for score in all_scores:
+        score.workspace_id = claim_ws_map.get(score.claim_id)
+
     scores_saved = await scoring.save_scores(all_scores)
 
     # ── 5. Update claim statuses ─────────────────────────────────────────
@@ -172,7 +187,8 @@ async def run_full_pipeline(
     # ── 6. Auto-create cases with evidence bundles ───────────────────────
     case_manager = CaseManager(db)
     new_cases = await case_manager.create_cases_from_scores(
-        all_scores, generate_evidence=True
+        all_scores, generate_evidence=True, workspace_id=ws_id,
+        claim_ws_map=claim_ws_map,
     )
 
     # Count risk levels
@@ -282,6 +298,14 @@ async def run_pipeline_stream(
         t_start = time.time()
         batch_id = body.batch_id or f"PIPE-{uuid4().hex[:12].upper()}"
 
+        # Resolve optional workspace_id to internal integer id
+        ws_id = None
+        if body.workspace_id:
+            ws_result = await db.execute(select(Workspace).where(Workspace.workspace_id == body.workspace_id))
+            ws = ws_result.scalar_one_or_none()
+            if ws:
+                ws_id = ws.id
+
         def send_event(event_type: str, data: dict) -> str:
             return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
@@ -294,15 +318,18 @@ async def run_pipeline_stream(
         med_q = (
             select(MedicalClaim)
             .where(MedicalClaim.claim_id.not_in(scored_med_ids))
-            .order_by(MedicalClaim.created_at.asc())
-            .limit(body.limit)
         )
+        if ws_id is not None:
+            med_q = med_q.where(MedicalClaim.workspace_id == ws_id)
+        med_q = med_q.order_by(MedicalClaim.created_at.asc()).limit(body.limit)
+
         rx_q = (
             select(PharmacyClaim)
             .where(PharmacyClaim.claim_id.not_in(scored_rx_ids))
-            .order_by(PharmacyClaim.created_at.asc())
-            .limit(body.limit)
         )
+        if ws_id is not None:
+            rx_q = rx_q.where(PharmacyClaim.workspace_id == ws_id)
+        rx_q = rx_q.order_by(PharmacyClaim.created_at.asc()).limit(body.limit)
 
         med_claims = list((await db.execute(med_q)).scalars())
         rx_claims = list((await db.execute(rx_q)).scalars())
@@ -342,12 +369,27 @@ async def run_pipeline_stream(
 
         rules_saved = await rule_engine.save_results(med_results) + await rule_engine.save_results(rx_results)
 
+        # Build claim -> workspace mapping and stamp on rule results
+        claim_ws_map: dict[str, int | None] = {}
+        for c in med_claims:
+            claim_ws_map[c.claim_id] = ws_id if ws_id is not None else c.workspace_id
+        for c in rx_claims:
+            claim_ws_map[c.claim_id] = ws_id if ws_id is not None else c.workspace_id
+        for rr_list in list(med_results.values()) + list(rx_results.values()):
+            for rr in rr_list:
+                rr.workspace_id = claim_ws_map.get(rr.claim_id)
+
         # Phase 4: Scoring
         yield send_event("phase", {"phase": "scoring", "label": "Calculating risk scores", "progress": 0})
         scoring = ScoringEngine(db)
         med_scores = await scoring.score_batch(med_results, "medical", batch_id) if med_results else []
         rx_scores = await scoring.score_batch(rx_results, "pharmacy", batch_id) if rx_results else []
         all_scores = med_scores + rx_scores
+
+        # Stamp workspace_id on scores
+        for score in all_scores:
+            score.workspace_id = claim_ws_map.get(score.claim_id)
+
         scores_saved = await scoring.save_scores(all_scores)
 
         high_count = sum(1 for s in all_scores if s.risk_level == "high")
@@ -366,7 +408,7 @@ async def run_pipeline_stream(
         # Phase 5: Case creation
         yield send_event("phase", {"phase": "cases", "label": "Creating investigation cases", "progress": 0})
         case_manager = CaseManager(db)
-        new_cases = await case_manager.create_cases_from_scores(all_scores, generate_evidence=True)
+        new_cases = await case_manager.create_cases_from_scores(all_scores, generate_evidence=True, workspace_id=ws_id, claim_ws_map=claim_ws_map)
         yield send_event("progress", {"phase": "cases", "current": len(new_cases), "total": len(new_cases), "progress": 100, "detail": f"Created {len(new_cases)} investigation cases"})
 
         # Audit
