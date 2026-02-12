@@ -44,17 +44,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend/app:/app/app
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://backend:8000
     depends_on:
       - backend
+    restart: unless-stopped
 
   nginx:
     image: nginx:alpine
@@ -65,6 +65,7 @@ services:
     depends_on:
       - backend
       - frontend
+    restart: unless-stopped
 
 volumes:
   postgres_data:
