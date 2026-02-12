@@ -83,17 +83,17 @@ async def _provider_metrics(
         return None
 
     # --- daily_patient_volume (max claims on a single service_date) ---
-    daily_q = await db.execute(
-        select(func.max(func.count()))
-        .select_from(
-            select(
-                MedicalClaim.service_date,
-                func.count().label("cnt"),
-            )
-            .where(and_(*filters))
-            .group_by(MedicalClaim.service_date)
-            .subquery()
+    daily_subq = (
+        select(
+            MedicalClaim.service_date,
+            func.count().label("cnt"),
         )
+        .where(and_(*filters))
+        .group_by(MedicalClaim.service_date)
+        .subquery()
+    )
+    daily_q = await db.execute(
+        select(func.max(daily_subq.c.cnt))
     )
     daily_max = daily_q.scalar() or 0
 

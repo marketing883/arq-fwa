@@ -52,11 +52,14 @@ class RuleTraceService:
         }
 
         # 4. Build contribution map from the risk score (if available)
+        #    rule_contributions values are dicts: {"weight":…,"contribution":…}
         contributions: dict[str, float] = {}
         if risk_score and risk_score.rule_contributions:
-            contributions = {
-                k: float(v) for k, v in risk_score.rule_contributions.items()
-            }
+            for k, v in risk_score.rule_contributions.items():
+                if isinstance(v, dict):
+                    contributions[k] = float(v.get("contribution", 0.0))
+                else:
+                    contributions[k] = float(v)
 
         # 5. Build step entries
         steps: list[dict[str, Any]] = []
