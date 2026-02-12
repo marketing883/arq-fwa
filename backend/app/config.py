@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_url: str = "http://localhost:11434"
-    llm_model: str = "llama3.1"
+    llm_model: str = "qwen3:8b"
 
     # App
     secret_key: str = "dev-secret-key-change-in-production"

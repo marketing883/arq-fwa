@@ -80,6 +80,11 @@ class AgentService:
             self._available = False
         return self._available
 
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        """Strip <think>…</think> reasoning blocks from qwen3-style output."""
+        return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+
     async def _call_ollama(self, prompt: str, system_prompt: str = "") -> str | None:
         if not await self._check_ollama():
             return None
@@ -100,7 +105,8 @@ class AgentService:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data.get("message", {}).get("content", "")
+                    content = data.get("message", {}).get("content", "")
+                    return self._strip_think_tags(content)
         except Exception as e:
             logger.warning(f"Ollama call failed: {e}")
         return None
