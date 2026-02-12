@@ -19,6 +19,40 @@ import {
   AgentStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+
+/* -------------------------------------------------------------------------- */
+/*  Prose overrides – compact spacing for chat bubbles                        */
+/* -------------------------------------------------------------------------- */
+
+const markdownClasses = [
+  "prose prose-sm max-w-none text-gray-800",
+  // headings
+  "prose-headings:font-semibold prose-headings:text-gray-900",
+  "prose-h1:text-base prose-h2:text-[0.9rem] prose-h3:text-sm",
+  "prose-headings:mt-3 prose-headings:mb-1 first:prose-headings:mt-0",
+  // paragraphs & lists
+  "prose-p:my-1.5 prose-p:leading-relaxed",
+  "prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5",
+  // inline code
+  "prose-code:before:content-none prose-code:after:content-none",
+  "prose-code:bg-white/70 prose-code:rounded prose-code:px-1 prose-code:py-0.5",
+  "prose-code:text-purple-700 prose-code:text-xs prose-code:font-medium",
+  // code blocks
+  "prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-pre:rounded-lg prose-pre:my-2",
+  "prose-pre:text-xs prose-pre:leading-relaxed",
+  // tables
+  "prose-table:my-2 prose-table:text-xs",
+  "prose-th:bg-white/50 prose-th:text-left prose-th:px-2 prose-th:py-1.5 prose-th:font-semibold",
+  "prose-td:px-2 prose-td:py-1 prose-td:border-t prose-td:border-gray-200",
+  // blockquotes
+  "prose-blockquote:border-purple-300 prose-blockquote:text-gray-600 prose-blockquote:my-2 prose-blockquote:not-italic",
+  // hr & links
+  "prose-hr:my-3 prose-hr:border-gray-300",
+  "prose-a:text-blue-600 prose-a:underline",
+  // strong / em
+  "prose-strong:text-gray-900 prose-strong:font-semibold",
+].join(" ");
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -525,7 +559,13 @@ export default function AgentsPage() {
                     : "bg-blue-500 text-white rounded-tr-sm",
                 )}
               >
-                <span className="whitespace-pre-wrap">{msg.content}</span>
+                {msg.role === "assistant" ? (
+                  <div className={markdownClasses}>
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <span className="whitespace-pre-wrap">{msg.content}</span>
+                )}
 
                 {/* Investigation card */}
                 {msg.investigation && (
