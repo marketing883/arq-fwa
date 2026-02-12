@@ -35,6 +35,12 @@ from app.models import (
 from app.models.chat import ChatSession, ChatMessage
 from app.services.audit_service import AuditService
 from app.middleware.metrics import agent_chat_requests_total, agent_chat_duration_seconds
+from app.auth.context import RequestContext
+from app.auth.permissions import Permission
+from app.auth.data_classification import (
+    Sensitivity, can_access_tool,
+    max_sensitivity_for_permissions, redact_financial_for_tier,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,12 +97,19 @@ Available tools (respond with EXACTLY this JSON format to use one):
 
 
 class AgentService:
-    def __init__(self, session: AsyncSession, workspace_id: int | None = None):
+    def __init__(self, session: AsyncSession, workspace_id: int | None = None,
+                 ctx: RequestContext | None = None):
         self.session = session
         self.ollama_url = settings.ollama_url
         self.model = settings.llm_model
         self._available: bool | None = None
         self.workspace_id = workspace_id
+        self.ctx = ctx
+        # Resolve the caller's maximum data sensitivity tier
+        if ctx:
+            self._max_tier = max_sensitivity_for_permissions(ctx.permissions)
+        else:
+            self._max_tier = Sensitivity.RESTRICTED  # default: full access (backward compat)
 
     # ------------------------------------------------------------------
     # Ollama
@@ -200,6 +213,16 @@ class AgentService:
     # ------------------------------------------------------------------
 
     async def _execute_tool(self, tool_name: str, args: dict) -> str:
+        # ── CAPC policy check: verify caller can access this tool's sensitivity tier ──
+        if self.ctx and not can_access_tool(self.ctx.permissions, tool_name):
+            logger.warning("Tool %s blocked for user %s (tier: %s)",
+                           tool_name, self.ctx.user_id, self._max_tier.name)
+            return json.dumps({
+                "error": f"Access denied: {tool_name} requires higher clearance level. "
+                         f"Your access tier: {self._max_tier.name}. "
+                         f"Contact your administrator for elevated permissions."
+            })
+
         if tool_name == "query_pipeline_stats":
             return await self._tool_pipeline_stats()
         elif tool_name == "query_cases":
@@ -211,7 +234,13 @@ class AgentService:
         elif tool_name == "query_provider":
             return await self._tool_query_provider(args.get("npi", ""))
         elif tool_name == "query_financial_summary":
-            return await self._tool_financial_summary()
+            raw = await self._tool_financial_summary()
+            # Apply tier-based redaction to financial data
+            if self._max_tier < Sensitivity.RESTRICTED:
+                data = json.loads(raw)
+                data = redact_financial_for_tier(data, self._max_tier)
+                return json.dumps(data)
+            return raw
         return f"Unknown tool: {tool_name}"
 
     async def _tool_pipeline_stats(self) -> str:
@@ -526,9 +555,17 @@ class AgentService:
         if _matches_any(msg, ["amount", "save", "saved", "saving", "cost", "dollar", "money", "financial",
                                "prevent", "prevention", "recover", "fraud amount", "billed", "paid",
                                "loss", "losses", "revenue", "impact", "value", "worth", "expense"]):
-            fin_data = await self._tool_financial_summary()
-            sections.append(f"FINANCIAL DATA (live):\n{fin_data}")
-            sources.append("database:financial-summary")
+            if self._max_tier >= Sensitivity.SENSITIVE:
+                fin_data = await self._tool_financial_summary()
+                if self._max_tier < Sensitivity.RESTRICTED:
+                    data = json.loads(fin_data)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    fin_data = json.dumps(data)
+                sections.append(f"FINANCIAL DATA (live):\n{fin_data}")
+                sources.append("database:financial-summary")
+            else:
+                sections.append("FINANCIAL DATA: [Access restricted — requires investigator or higher role]")
+                sources.append("policy:financial-restricted")
 
         if _matches_any(msg, ["rule", "trigger", "detection", "pattern", "flag", "fired", "common"]):
             q = await self.session.execute(
@@ -683,6 +720,12 @@ class AgentService:
                         sources.append(f"rule:{r['rule_id']}")
 
             ws_note = f"\nScoped to workspace {self.workspace_id}." if self.workspace_id else ""
+            tier_note = (
+                f"\nCaller access tier: {self._max_tier.name}. "
+                f"{'You may share financial data freely.' if self._max_tier >= Sensitivity.RESTRICTED else ''}"
+                f"{'You may show individual claim amounts but NOT aggregate fraud estimates or recovery totals.' if self._max_tier == Sensitivity.SENSITIVE else ''}"
+                f"{'Do NOT disclose any dollar amounts, financial figures, or monetary data. Only share counts and statuses.' if self._max_tier < Sensitivity.SENSITIVE else ''}"
+            )
             system_prompt = (
                 "You are an AI assistant for the ArqAI FWA (Fraud, Waste, Abuse) detection platform.\n"
                 "Use the provided LIVE DATA to answer questions accurately.\n\n"
@@ -695,7 +738,10 @@ class AgentService:
                 "This is money NOT paid out because claims were flagged. Also report total_estimated_fraud and total_recovered.\n"
                 "5. Use markdown formatting. Bold key numbers. Be concise but complete.\n"
                 "6. Reference case/rule IDs exactly as they appear.\n"
-                f"{ws_note}\n\n{TOOL_DEFINITIONS}"
+                "7. CRITICAL: Respect the caller's access tier. If data is marked [RESTRICTED] or "
+                "[REQUIRES COMPLIANCE ACCESS], do NOT attempt to infer or calculate the redacted values. "
+                "Instead, inform the user they need elevated permissions.\n"
+                f"{ws_note}{tier_note}\n\n{TOOL_DEFINITIONS}"
             )
 
             context_block = "\n\n---\n\n".join(context_parts)
@@ -899,8 +945,20 @@ class AgentService:
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
     async def _answer_financial(self, sources: list[str]) -> ChatResponse:
+        # Check data sensitivity tier before exposing financial data
+        if self._max_tier < Sensitivity.SENSITIVE:
+            return ChatResponse(
+                response="**Access Restricted**\n\nFinancial data requires investigator-level "
+                         "access or higher. Your current role does not include financial data permissions.\n\n"
+                         "Contact your administrator to request `financial:view` permission.",
+                sources_cited=["policy:access-denied"],
+                confidence="high",
+            )
+
         fin_raw = await self._tool_financial_summary()
         fin = json.loads(fin_raw)
+        if self._max_tier < Sensitivity.RESTRICTED:
+            fin = redact_financial_for_tier(fin, self._max_tier)
         sources.append("database:financial-summary")
 
         flagged = fin["flagged_claims"]

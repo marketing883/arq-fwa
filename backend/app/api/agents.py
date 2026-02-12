@@ -124,7 +124,7 @@ async def investigate_case(
     """AI agent investigates a case and produces a structured analysis."""
     try:
         ws_id = await _resolve_workspace(db, body.workspace_id) if body.workspace_id else ctx.workspace_id
-        agent = AgentService(db, workspace_id=ws_id)
+        agent = AgentService(db, workspace_id=ws_id, ctx=ctx)
         result = await agent.investigate_case(body.case_id)
 
         return InvestigateResponse(
@@ -151,7 +151,7 @@ async def agent_chat(
     """Interactive chat with the investigation assistant."""
     try:
         ws_id = await _resolve_workspace(db, body.workspace_id) if body.workspace_id else ctx.workspace_id
-        agent = AgentService(db, workspace_id=ws_id)
+        agent = AgentService(db, workspace_id=ws_id, ctx=ctx)
         result = await agent.chat(body.message, body.case_id, body.session_id)
 
         # Persist to session if session_id provided
@@ -200,7 +200,7 @@ async def agent_chat_stream(
 ):
     """Stream chat responses token-by-token via SSE."""
     ws_id = await _resolve_workspace(db, body.workspace_id) if body.workspace_id else ctx.workspace_id
-    agent = AgentService(db, workspace_id=ws_id)
+    agent = AgentService(db, workspace_id=ws_id, ctx=ctx)
 
     async def generate():
         async for event in agent.chat_stream(body.message, body.case_id, body.session_id):
