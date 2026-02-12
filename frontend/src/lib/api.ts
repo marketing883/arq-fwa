@@ -424,7 +424,15 @@ export interface AgentChatResponse {
   model_used: string;
 }
 
+export interface AgentStatus {
+  status: "ready" | "loading";
+  model: string;
+  mode: "slm" | "data-engine";
+  detail?: string;
+}
+
 export const agents = {
+  status: () => fetchAPI<AgentStatus>("/agents/status"),
   investigate: (caseId: string, question?: string) =>
     fetchAPI<InvestigateResponse>("/agents/investigate", {
       method: "POST",

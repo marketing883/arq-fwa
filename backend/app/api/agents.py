@@ -1,12 +1,14 @@
 """
-Agent API — LLM-powered investigation and chat endpoints.
+Agent API — AI-powered investigation and chat endpoints.
 """
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.config import settings
 from app.services.agent_service import AgentService
 
 
@@ -38,6 +40,25 @@ class ChatResponseSchema(BaseModel):
     response: str
     sources_cited: list[str]
     model_used: str
+
+
+@router.get("/status")
+async def agent_status():
+    """Check if the AI model is available."""
+    model = settings.llm_model
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{settings.ollama_url}/api/tags")
+            if resp.status_code == 200:
+                tags = resp.json()
+                models = [m.get("name", "") for m in tags.get("models", [])]
+                if any(model in m for m in models):
+                    return {"status": "ready", "model": model, "mode": "slm"}
+                return {"status": "loading", "model": model, "mode": "data-engine",
+                        "detail": f"Model {model} is being downloaded"}
+    except Exception:
+        pass
+    return {"status": "ready", "model": "data-engine", "mode": "data-engine"}
 
 
 @router.post("/investigate", response_model=InvestigateResponse)

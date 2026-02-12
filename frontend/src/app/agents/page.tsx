@@ -16,6 +16,7 @@ import {
   cases as casesApi,
   CaseSummary,
   InvestigateResponse,
+  AgentStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +138,9 @@ export default function AgentsPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Agent status
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+
   // Case selector state
   const [caseList, setCaseList] = useState<CaseSummary[]>([]);
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
@@ -152,6 +156,22 @@ export default function AgentsPage() {
   // Focus input
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Poll agent status
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const s = await agents.status();
+        if (!cancelled) setAgentStatus(s);
+      } catch {
+        if (!cancelled) setAgentStatus(null);
+      }
+    }
+    poll();
+    const interval = setInterval(poll, 15_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   // Load cases for selector
@@ -287,9 +307,30 @@ export default function AgentsPage() {
               <h1 className="text-lg font-bold text-gray-900">
                 AI Investigation Assistant
               </h1>
-              <p className="text-xs text-gray-500">
-                Powered by local LLM via Ollama
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                {agentStatus?.mode === "slm" ? (
+                  <>
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+                    <p className="text-xs text-gray-500">
+                      Powered by <span className="font-medium text-gray-700">{agentStatus.model}</span> (local SLM)
+                    </p>
+                  </>
+                ) : agentStatus?.status === "loading" ? (
+                  <>
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <p className="text-xs text-amber-600">
+                      Model downloading&hellip; using data engine in the meantime
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />
+                    <p className="text-xs text-gray-500">
+                      Data-driven analysis engine
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
