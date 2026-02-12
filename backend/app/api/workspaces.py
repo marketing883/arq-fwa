@@ -178,7 +178,32 @@ async def upload_preview(
     content = await file.read()
     service = UploadService(db)
     preview = await service.preview_csv(content, claim_type)
-    return preview.to_dict()
+
+    # Invert auto_mapping (internal_field -> csv_col) to (csv_col -> internal_field)
+    # so the frontend can key by CSV column name
+    suggested_mapping: dict[str, str] = {}
+    for internal_field, csv_col in preview.auto_mapping.items():
+        if csv_col:
+            suggested_mapping[csv_col] = internal_field
+
+    # Build full list of target fields available for mapping
+    from app.upload.column_maps import (
+        MEDICAL_REQUIRED, MEDICAL_OPTIONAL, PHARMACY_REQUIRED, PHARMACY_OPTIONAL,
+    )
+    if claim_type == "medical":
+        target_fields = sorted(list(MEDICAL_REQUIRED) + list(MEDICAL_OPTIONAL))
+    else:
+        target_fields = sorted(list(PHARMACY_REQUIRED) + list(PHARMACY_OPTIONAL))
+
+    return {
+        "file_name": file.filename,
+        "total_rows": preview.total_rows,
+        "columns": preview.csv_headers,
+        "preview_rows": preview.sample_rows[:5],
+        "suggested_mapping": suggested_mapping,
+        "target_fields": target_fields,
+        "unmapped_required": preview.unmapped_required,
+    }
 
 
 # ── POST /api/workspaces/{id}/upload/ingest ──
@@ -188,7 +213,7 @@ async def upload_ingest(
     workspace_id: str,
     file: UploadFile = File(...),
     claim_type: str = Form("medical"),
-    mapping: str = Form(...),  # JSON string of mapping dict
+    mapping: str = Form(...),  # JSON string: {csv_col: internal_field}
     db: AsyncSession = Depends(get_db),
 ):
     """Ingest CSV data using the confirmed column mapping."""
@@ -200,14 +225,24 @@ async def upload_ingest(
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="Invalid mapping JSON")
 
+    # Frontend sends {csv_col: internal_field},
+    # but service expects {internal_field: csv_col} — invert it
+    inverted_mapping = {v: k for k, v in mapping_dict.items() if v}
+
     content = await file.read()
     service = UploadService(db)
 
     if claim_type == "medical":
-        result = await service.ingest_medical(ws, content, mapping_dict)
+        result = await service.ingest_medical(ws, content, inverted_mapping)
     elif claim_type == "pharmacy":
-        result = await service.ingest_pharmacy(ws, content, mapping_dict)
+        result = await service.ingest_pharmacy(ws, content, inverted_mapping)
     else:
         raise HTTPException(status_code=422, detail="claim_type must be 'medical' or 'pharmacy'")
 
-    return result.to_dict()
+    return {
+        "workspace_id": ws.workspace_id,
+        "claim_type": claim_type,
+        "rows_imported": result.claims_created,
+        "rows_skipped": len(result.errors),
+        "errors": [e.get("error", str(e)) if isinstance(e, dict) else str(e) for e in result.errors],
+    }

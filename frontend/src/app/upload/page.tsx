@@ -25,7 +25,9 @@ interface PreviewResponse {
   total_rows: number;
   columns: string[];
   preview_rows: Record<string, string>[];
-  suggested_mapping: Record<string, string>;
+  suggested_mapping: Record<string, string>;  // csv_col -> internal_field
+  target_fields: string[];                    // all available internal field names
+  unmapped_required: string[];
 }
 
 interface IngestResponse {
@@ -236,20 +238,20 @@ export default function UploadPage() {
   /* ======================================================================== */
 
   const submitStep2 = useCallback(async () => {
-    if (!workspaceId || !preview) return;
+    if (!workspaceId || !preview || !file) return;
 
     setError(null);
     setLoading(true);
 
     try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("claim_type", claimType);
+      form.append("mapping", JSON.stringify(columnMapping));
+
       const res = await fetch(`/api/workspaces/${workspaceId}/upload/ingest`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_name: preview.file_name,
-          claim_type: claimType,
-          column_mapping: columnMapping,
-        }),
+        body: form,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -268,18 +270,14 @@ export default function UploadPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, preview, claimType, columnMapping, refreshWorkspaces, setActiveWorkspace]);
+  }, [workspaceId, preview, file, claimType, columnMapping, refreshWorkspaces, setActiveWorkspace]);
 
   /* ======================================================================== */
   /*  Column mapping helpers                                                  */
   /* ======================================================================== */
 
-  const targetFields = preview
-    ? Object.values(preview.suggested_mapping).filter(Boolean)
-    : [];
-
-  // Deduplicate and sort target fields for dropdown options
-  const allTargetOptions = Array.from(new Set(targetFields)).sort();
+  // All possible internal field names for the mapping dropdown
+  const allTargetOptions = preview?.target_fields ?? [];
 
   const updateMapping = (csvCol: string, target: string) => {
     setColumnMapping((prev) => ({ ...prev, [csvCol]: target }));
