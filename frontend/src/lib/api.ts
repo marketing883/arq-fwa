@@ -405,6 +405,38 @@ export interface PeerComparison {
   metrics: PeerMetric[];
 }
 
+// ── Agents ──
+
+export interface InvestigateResponse {
+  case_id: string;
+  summary: string;
+  findings: string[];
+  risk_assessment: string;
+  recommended_actions: string[];
+  confidence: number;
+  model_used: string;
+  generated_at: string;
+}
+
+export interface AgentChatResponse {
+  response: string;
+  sources_cited: string[];
+  model_used: string;
+}
+
+export const agents = {
+  investigate: (caseId: string, question?: string) =>
+    fetchAPI<InvestigateResponse>("/agents/investigate", {
+      method: "POST",
+      body: JSON.stringify({ case_id: caseId, question }),
+    }),
+  chat: (message: string, caseId?: string | null) =>
+    fetchAPI<AgentChatResponse>("/agents/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, case_id: caseId || undefined }),
+    }),
+};
+
 export const providers = {
   peerComparison: (npi: string, workspaceId?: string | null) => {
     const qs = new URLSearchParams();
