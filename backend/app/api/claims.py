@@ -11,6 +11,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db
 from app.models import (
@@ -244,16 +245,26 @@ async def get_claim_detail(
 ) -> ClaimDetail:
     """Return complete claim detail including rule results and risk score."""
 
-    # Try medical first
+    # Try medical first (eager-load relationships to avoid async lazy-loading)
     med_q = await db.execute(
-        select(MedicalClaim).where(MedicalClaim.claim_id == claim_id)
+        select(MedicalClaim)
+        .where(MedicalClaim.claim_id == claim_id)
+        .options(
+            selectinload(MedicalClaim.provider),
+            selectinload(MedicalClaim.member),
+        )
     )
     med_claim = med_q.scalar_one_or_none()
 
     rx_claim = None
     if med_claim is None:
         rx_q = await db.execute(
-            select(PharmacyClaim).where(PharmacyClaim.claim_id == claim_id)
+            select(PharmacyClaim)
+            .where(PharmacyClaim.claim_id == claim_id)
+            .options(
+                selectinload(PharmacyClaim.prescriber),
+                selectinload(PharmacyClaim.member),
+            )
         )
         rx_claim = rx_q.scalar_one_or_none()
 
