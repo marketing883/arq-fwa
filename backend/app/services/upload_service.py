@@ -124,6 +124,77 @@ def _parse_bool(val: str | None) -> bool:
     return val.strip().lower() in ("true", "1", "yes", "y", "t")
 
 
+MAX_CSV_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_CSV_ROWS = 500_000
+MAX_CSV_COLUMNS = 100
+
+# Characters that can trigger formula injection in spreadsheet applications
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def _sanitize_cell(value: str) -> str:
+    """Strip/escape special characters in a cell to prevent CSV injection."""
+    if not value:
+        return value
+    stripped = value.strip()
+    # Reject formula injection characters at cell start
+    if stripped and stripped[0] in _FORMULA_PREFIXES:
+        stripped = "'" + stripped
+    return stripped
+
+
+def validate_csv_upload(file_content: bytes) -> list[str]:
+    """Pre-validate CSV upload: size, structure, no binary, no formula injection.
+
+    Returns a list of error strings (empty = valid).
+    """
+    errors: list[str] = []
+
+    # File size check
+    if len(file_content) > MAX_CSV_SIZE:
+        errors.append(f"File size ({len(file_content) / 1024 / 1024:.1f} MB) exceeds maximum ({MAX_CSV_SIZE / 1024 / 1024:.0f} MB)")
+        return errors  # Don't parse further
+
+    # Attempt decode — reject binary content
+    try:
+        text = file_content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        errors.append("File contains binary content and is not a valid UTF-8 CSV")
+        return errors
+
+    reader = csv.reader(io.StringIO(text))
+    try:
+        headers = next(reader)
+    except StopIteration:
+        errors.append("CSV file is empty (no header row)")
+        return errors
+
+    if len(headers) > MAX_CSV_COLUMNS:
+        errors.append(f"CSV has {len(headers)} columns, maximum is {MAX_CSV_COLUMNS}")
+
+    row_count = 0
+    formula_rows: list[int] = []
+    for row_num, row in enumerate(reader, start=2):
+        row_count += 1
+        if row_count > MAX_CSV_ROWS:
+            errors.append(f"CSV has more than {MAX_CSV_ROWS:,} rows")
+            break
+        for cell in row:
+            if cell and cell.strip() and cell.strip()[0] in _FORMULA_PREFIXES:
+                formula_rows.append(row_num)
+                break
+
+    if formula_rows:
+        sample = formula_rows[:5]
+        errors.append(
+            f"Potential CSV injection: cells starting with formula characters "
+            f"(=, +, -, @) found on rows: {', '.join(str(r) for r in sample)}"
+            f"{f' and {len(formula_rows) - 5} more' if len(formula_rows) > 5 else ''}"
+        )
+
+    return errors
+
+
 class UploadService:
     def __init__(self, db: AsyncSession):
         self.db = db

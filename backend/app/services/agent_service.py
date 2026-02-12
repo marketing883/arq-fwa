@@ -1,20 +1,30 @@
 """
-Agent Service (Phase 9) — AI-powered investigation assistant.
+Agent Service — AI-powered investigation assistant.
 
 Uses a local SLM via Ollama for case investigation and chat.
 When the model is still loading or unavailable, falls back to a data-driven
 assistant that queries the database to answer questions about cases, claims,
 rules, providers, and pipeline statistics.
+
+Features:
+- Conversation memory (session-based)
+- Workspace-scoped guardrails
+- Tool-use / ReAct loop
+- Citation linking (case/rule IDs → markdown links)
+- Confidence indicator (high/medium/low)
+- Streaming support
 """
 
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import AsyncIterator
 
 import httpx
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -22,9 +32,13 @@ from app.models import (
     InvestigationCase, MedicalClaim, PharmacyClaim,
     RiskScore, RuleResult, Rule, Provider, Member,
 )
+from app.models.chat import ChatSession, ChatMessage
 from app.services.audit_service import AuditService
+from app.middleware.metrics import agent_chat_requests_total, agent_chat_duration_seconds
 
 logger = logging.getLogger(__name__)
+
+MAX_HISTORY_MESSAGES = 20
 
 
 @dataclass
@@ -44,23 +58,47 @@ class ChatResponse:
     response: str
     sources_cited: list[str] = field(default_factory=list)
     model_used: str = "data-engine"
+    confidence: str = "medium"
 
 
 def _matches_any(text: str, patterns: list[str]) -> bool:
     return any(p in text for p in patterns)
 
 
-class AgentService:
-    """AI investigation assistant — SLM-powered with data-driven fallback."""
+# ── Citation linking ─────────────────────────────────────────────────────────
 
-    def __init__(self, session: AsyncSession):
+_CASE_ID_RE = re.compile(r'\b(CASE-[A-Z0-9]{6,})\b')
+_RULE_SHORT_RE = re.compile(r'\b([MP]\d{2}_[A-Za-z_]+)\b')
+
+
+def linkify_citations(text: str) -> str:
+    text = _CASE_ID_RE.sub(r'[\1](/cases/\1)', text)
+    text = _RULE_SHORT_RE.sub(r'[\1](/rules/\1)', text)
+    return text
+
+
+# ── Tool definitions for ReAct ───────────────────────────────────────────────
+
+TOOL_DEFINITIONS = """
+Available tools (respond with EXACTLY this JSON format to use one):
+{"tool": "query_pipeline_stats"} - Get claim counts, case counts, risk breakdown
+{"tool": "query_cases", "args": {"risk_level": "critical", "status": "open", "limit": 10}}
+{"tool": "query_case_detail", "args": {"case_id": "CASE-XXXXXX"}}
+{"tool": "query_rules", "args": {"triggered_only": true, "limit": 10}}
+{"tool": "query_provider", "args": {"npi": "1234567890"}}
+"""
+
+
+class AgentService:
+    def __init__(self, session: AsyncSession, workspace_id: int | None = None):
         self.session = session
         self.ollama_url = settings.ollama_url
         self.model = settings.llm_model
         self._available: bool | None = None
+        self.workspace_id = workspace_id
 
     # ------------------------------------------------------------------
-    # Ollama integration
+    # Ollama
     # ------------------------------------------------------------------
 
     async def _check_ollama(self) -> bool:
@@ -68,31 +106,19 @@ class AgentService:
             return self._available
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                # Try direct model check first (most reliable)
                 try:
                     show = await client.post(
-                        f"{self.ollama_url}/api/show",
-                        json={"name": self.model},
+                        f"{self.ollama_url}/api/show", json={"name": self.model},
                     )
                     if show.status_code == 200:
                         self._available = True
-                        logger.info("Ollama model %s confirmed via /api/show", self.model)
                         return True
                 except Exception:
                     pass
-
-                # Fallback to tag list
                 resp = await client.get(f"{self.ollama_url}/api/tags")
                 if resp.status_code == 200:
-                    tags = resp.json()
-                    models = [m.get("name", "") for m in tags.get("models", [])]
-                    self._available = any(
-                        self.model == m or self.model in m for m in models
-                    )
-                    if not self._available:
-                        logger.warning(
-                            "Model %s not in Ollama tags: %s", self.model, models
-                        )
+                    models = [m.get("name", "") for m in resp.json().get("models", [])]
+                    self._available = any(self.model == m or self.model in m for m in models)
                 else:
                     self._available = False
         except Exception as exc:
@@ -102,124 +128,229 @@ class AgentService:
 
     @staticmethod
     def _strip_think_tags(text: str) -> str:
-        """Strip <think>…</think> reasoning blocks from qwen3-style output."""
         return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
-    async def _call_ollama(self, prompt: str, system_prompt: str = "") -> str | None:
+    async def _call_ollama(self, prompt: str, system_prompt: str = "", history: list[dict] | None = None) -> str | None:
         if not await self._check_ollama():
             return None
         try:
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+            if history:
+                messages.extend(history)
             messages.append({"role": "user", "content": prompt})
 
-            # Separate connect vs read timeout: model loading can be slow
             timeout = httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
-                logger.info("Calling Ollama %s with %d chars prompt...", self.model, len(prompt))
                 resp = await client.post(
                     f"{self.ollama_url}/api/chat",
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "stream": False,
-                        "options": {"temperature": 0.3, "num_predict": 2048},
-                    },
+                    json={"model": self.model, "messages": messages, "stream": False,
+                           "options": {"temperature": 0.3, "num_predict": 2048}},
                 )
                 if resp.status_code == 200:
-                    data = resp.json()
-                    content = data.get("message", {}).get("content", "")
-                    logger.info("Ollama responded with %d chars", len(content))
+                    content = resp.json().get("message", {}).get("content", "")
                     return self._strip_think_tags(content)
-                else:
-                    logger.warning("Ollama returned %d: %s", resp.status_code, resp.text[:200])
-        except httpx.TimeoutException as e:
-            logger.warning("Ollama timed out: %s", e)
-            # Reset availability so next request re-checks
+        except httpx.TimeoutException:
             self._available = None
         except Exception as e:
-            logger.warning("Ollama call failed: %s: %s", type(e).__name__, e)
+            logger.warning("Ollama call failed: %s", e)
             self._available = None
         return None
 
+    async def _call_ollama_stream(self, prompt: str, system_prompt: str = "", history: list[dict] | None = None) -> AsyncIterator[str]:
+        if not await self._check_ollama():
+            return
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
+
+        timeout = httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream(
+                    "POST", f"{self.ollama_url}/api/chat",
+                    json={"model": self.model, "messages": messages, "stream": True,
+                           "options": {"temperature": 0.3, "num_predict": 2048}},
+                ) as resp:
+                    if resp.status_code != 200:
+                        return
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            token = data.get("message", {}).get("content", "")
+                            if token:
+                                yield token
+                            if data.get("done"):
+                                break
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            logger.warning("Ollama stream failed: %s", e)
+            self._available = None
+
     # ------------------------------------------------------------------
-    # Case context gathering
+    # Tool execution (ReAct)
+    # ------------------------------------------------------------------
+
+    async def _execute_tool(self, tool_name: str, args: dict) -> str:
+        if tool_name == "query_pipeline_stats":
+            return await self._tool_pipeline_stats()
+        elif tool_name == "query_cases":
+            return await self._tool_query_cases(args)
+        elif tool_name == "query_case_detail":
+            return await self._tool_case_detail(args.get("case_id", ""))
+        elif tool_name == "query_rules":
+            return await self._tool_query_rules(args)
+        elif tool_name == "query_provider":
+            return await self._tool_query_provider(args.get("npi", ""))
+        return f"Unknown tool: {tool_name}"
+
+    async def _tool_pipeline_stats(self) -> str:
+        med = (await self.session.execute(select(func.count()).select_from(MedicalClaim))).scalar() or 0
+        rx = (await self.session.execute(select(func.count()).select_from(PharmacyClaim))).scalar() or 0
+        cases = (await self.session.execute(select(func.count()).select_from(InvestigationCase))).scalar() or 0
+        active = (await self.session.execute(
+            select(func.count()).select_from(InvestigationCase).where(
+                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
+        )).scalar() or 0
+        risk_counts = {}
+        for level in ("critical", "high", "medium", "low"):
+            risk_counts[level] = (await self.session.execute(
+                select(func.count()).select_from(InvestigationCase).where(InvestigationCase.risk_level == level)
+            )).scalar() or 0
+        return json.dumps({"total_claims": med + rx, "medical": med, "pharmacy": rx,
+                           "cases": cases, "active_cases": active, "risk_breakdown": risk_counts})
+
+    async def _tool_query_cases(self, args: dict) -> str:
+        q = select(InvestigationCase)
+        if args.get("risk_level"):
+            q = q.where(InvestigationCase.risk_level == args["risk_level"])
+        if args.get("status"):
+            q = q.where(InvestigationCase.status == args["status"])
+        q = q.order_by(InvestigationCase.risk_score.desc()).limit(args.get("limit", 10))
+        result = await self.session.execute(q)
+        cases = [{"case_id": c.case_id, "risk_score": float(c.risk_score), "risk_level": c.risk_level,
+                  "status": c.status, "priority": c.priority, "claim_id": c.claim_id}
+                 for c in result.scalars()]
+        return json.dumps(cases)
+
+    async def _tool_case_detail(self, case_id: str) -> str:
+        ctx = await self._gather_case_context(case_id)
+        return json.dumps(ctx, default=str)
+
+    async def _tool_query_rules(self, args: dict) -> str:
+        q = (select(RuleResult.rule_id, func.count().label("cnt"))
+             .where(RuleResult.triggered == True)
+             .group_by(RuleResult.rule_id)
+             .order_by(func.count().desc())
+             .limit(args.get("limit", 10)))
+        result = await self.session.execute(q)
+        return json.dumps([{"rule_id": r[0], "trigger_count": r[1]} for r in result])
+
+    async def _tool_query_provider(self, npi: str) -> str:
+        prov_q = await self.session.execute(select(Provider).where(Provider.npi == npi))
+        prov = prov_q.scalar_one_or_none()
+        if not prov:
+            return json.dumps({"error": f"Provider NPI {npi} not found"})
+        return json.dumps({"npi": prov.npi, "name": prov.name, "specialty": prov.specialty,
+                           "is_active": prov.is_active, "oig_excluded": prov.oig_excluded})
+
+    def _parse_tool_call(self, text: str) -> tuple[str, dict] | None:
+        match = re.search(r'\{[^{}]*"tool"\s*:\s*"[^"]+?"[^{}]*\}', text)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+                tool_name = parsed.get("tool")
+                if tool_name:
+                    return tool_name, parsed.get("args", {})
+            except json.JSONDecodeError:
+                pass
+        return None
+
+    async def _react_loop(self, message: str, system_prompt: str, history: list[dict] | None = None) -> tuple[str, list[str]]:
+        sources: list[str] = []
+        current_prompt = message
+        for i in range(5):
+            response = await self._call_ollama(current_prompt, system_prompt, history)
+            if not response:
+                return "", sources
+            tool_call = self._parse_tool_call(response)
+            if tool_call is None:
+                return response, sources
+            tool_name, args = tool_call
+            logger.info("ReAct %d: tool=%s args=%s", i + 1, tool_name, args)
+            tool_result = await self._execute_tool(tool_name, args)
+            sources.append(f"tool:{tool_name}")
+            current_prompt = (
+                f"Tool result for {tool_name}:\n{tool_result}\n\n"
+                f"Now answer the user's original question based on this data. "
+                f"Do NOT call another tool unless you need additional information."
+            )
+        return response or "", sources
+
+    # ------------------------------------------------------------------
+    # Case context
     # ------------------------------------------------------------------
 
     async def _gather_case_context(self, case_id: str) -> dict:
-        case_q = await self.session.execute(
-            select(InvestigationCase).where(InvestigationCase.case_id == case_id)
-        )
-        case = case_q.scalar_one_or_none()
+        q = select(InvestigationCase).where(InvestigationCase.case_id == case_id)
+        if self.workspace_id is not None:
+            q = q.where(InvestigationCase.workspace_id == self.workspace_id)
+        case = (await self.session.execute(q)).scalar_one_or_none()
         if not case:
             return {"error": f"Case {case_id} not found"}
 
         context: dict = {
-            "case_id": case.case_id,
-            "status": case.status,
-            "priority": case.priority,
-            "risk_level": case.risk_level,
-            "risk_score": float(case.risk_score),
-            "claim_id": case.claim_id,
-            "claim_type": case.claim_type,
+            "case_id": case.case_id, "status": case.status, "priority": case.priority,
+            "risk_level": case.risk_level, "risk_score": float(case.risk_score),
+            "claim_id": case.claim_id, "claim_type": case.claim_type,
         }
 
         if case.claim_type == "medical":
-            claim_q = await self.session.execute(
+            claim = (await self.session.execute(
                 select(MedicalClaim).where(MedicalClaim.claim_id == case.claim_id)
-            )
-            claim = claim_q.scalar_one_or_none()
+            )).scalar_one_or_none()
             if claim:
                 context["claim"] = {
-                    "service_date": str(claim.service_date),
-                    "cpt_code": claim.cpt_code,
-                    "cpt_modifier": claim.cpt_modifier,
-                    "diagnosis_primary": claim.diagnosis_code_primary,
+                    "service_date": str(claim.service_date), "cpt_code": claim.cpt_code,
+                    "cpt_modifier": claim.cpt_modifier, "diagnosis_primary": claim.diagnosis_code_primary,
                     "amount_billed": float(claim.amount_billed),
                     "amount_paid": float(claim.amount_paid) if claim.amount_paid else None,
-                    "place_of_service": claim.place_of_service,
-                    "units": claim.units,
+                    "place_of_service": claim.place_of_service, "units": claim.units,
                 }
-                prov_q = await self.session.execute(
+                prov = (await self.session.execute(
                     select(Provider).where(Provider.id == claim.provider_id)
-                )
-                prov = prov_q.scalar_one_or_none()
+                )).scalar_one_or_none()
                 if prov:
-                    context["provider"] = {
-                        "npi": prov.npi, "name": prov.name,
-                        "specialty": prov.specialty,
-                        "oig_excluded": prov.oig_excluded,
-                    }
+                    context["provider"] = {"npi": prov.npi, "name": prov.name,
+                                            "specialty": prov.specialty, "oig_excluded": prov.oig_excluded}
         else:
-            claim_q = await self.session.execute(
+            claim = (await self.session.execute(
                 select(PharmacyClaim).where(PharmacyClaim.claim_id == case.claim_id)
-            )
-            claim = claim_q.scalar_one_or_none()
+            )).scalar_one_or_none()
             if claim:
                 context["claim"] = {
-                    "fill_date": str(claim.fill_date),
-                    "ndc_code": claim.ndc_code,
-                    "drug_name": claim.drug_name,
-                    "is_controlled": claim.is_controlled,
+                    "fill_date": str(claim.fill_date), "ndc_code": claim.ndc_code,
+                    "drug_name": claim.drug_name, "is_controlled": claim.is_controlled,
                     "dea_schedule": claim.dea_schedule,
                     "quantity_dispensed": float(claim.quantity_dispensed),
-                    "days_supply": claim.days_supply,
-                    "amount_billed": float(claim.amount_billed),
+                    "days_supply": claim.days_supply, "amount_billed": float(claim.amount_billed),
                 }
 
         rr_q = await self.session.execute(
-            select(RuleResult).where(
-                RuleResult.claim_id == case.claim_id,
-                RuleResult.triggered == True,
-            )
+            select(RuleResult).where(RuleResult.claim_id == case.claim_id, RuleResult.triggered == True)
         )
         triggered_rules = []
         for rr in rr_q.scalars():
-            rule_q = await self.session.execute(
+            rule_info = (await self.session.execute(
                 select(Rule.category, Rule.description, Rule.fraud_type).where(Rule.rule_id == rr.rule_id)
-            )
-            rule_info = rule_q.first()
+            )).first()
             triggered_rules.append({
                 "rule_id": rr.rule_id,
                 "category": rule_info[0] if rule_info else rr.rule_id,
@@ -227,224 +358,132 @@ class AgentService:
                 "fraud_type": rule_info[2] if rule_info else "",
                 "severity": float(rr.severity) if rr.severity else 0,
                 "confidence": float(rr.confidence) if rr.confidence else 0,
-                "evidence": rr.evidence,
-                "details": rr.details,
+                "evidence": rr.evidence, "details": rr.details,
             })
         context["triggered_rules"] = triggered_rules
 
-        rs_q = await self.session.execute(
+        rs = (await self.session.execute(
             select(RiskScore).where(RiskScore.claim_id == case.claim_id)
-        )
-        rs = rs_q.scalar_one_or_none()
+        )).scalar_one_or_none()
         if rs:
             context["risk_score_detail"] = {
-                "total": float(rs.total_score),
-                "level": rs.risk_level,
+                "total": float(rs.total_score), "level": rs.risk_level,
                 "contributions": rs.rule_contributions,
             }
-
         return context
 
     # ------------------------------------------------------------------
-    # Live data context for RAG
+    # Data context for RAG
     # ------------------------------------------------------------------
 
     async def _gather_data_context(self, message: str) -> tuple[str, list[str]]:
-        """Query the database for live data relevant to the user's question.
-
-        Returns (context_text, sources) to inject into the LLM prompt so it
-        can give data-backed answers instead of generic advice.
-        """
         msg = message.lower()
         sections: list[str] = []
         sources: list[str] = []
 
-        # ── Always include pipeline overview ──
-        med = (await self.session.execute(
-            select(func.count()).select_from(MedicalClaim)
-        )).scalar() or 0
-        rx = (await self.session.execute(
-            select(func.count()).select_from(PharmacyClaim)
-        )).scalar() or 0
-        total_cases = (await self.session.execute(
-            select(func.count()).select_from(InvestigationCase)
-        )).scalar() or 0
+        med = (await self.session.execute(select(func.count()).select_from(MedicalClaim))).scalar() or 0
+        rx = (await self.session.execute(select(func.count()).select_from(PharmacyClaim))).scalar() or 0
+        total_cases = (await self.session.execute(select(func.count()).select_from(InvestigationCase))).scalar() or 0
         active = (await self.session.execute(
             select(func.count()).select_from(InvestigationCase).where(
-                InvestigationCase.status.in_(["open", "under_review", "escalated"])
-            )
+                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
         )).scalar() or 0
 
-        # Cases by risk level
         risk_counts = {}
         for level in ("critical", "high", "medium", "low"):
             risk_counts[level] = (await self.session.execute(
-                select(func.count()).select_from(InvestigationCase)
-                .where(InvestigationCase.risk_level == level)
+                select(func.count()).select_from(InvestigationCase).where(InvestigationCase.risk_level == level)
             )).scalar() or 0
 
-        # Cases by status
         status_counts = {}
         for st in ("open", "under_review", "escalated", "resolved", "closed"):
             status_counts[st] = (await self.session.execute(
-                select(func.count()).select_from(InvestigationCase)
-                .where(InvestigationCase.status == st)
+                select(func.count()).select_from(InvestigationCase).where(InvestigationCase.status == st)
             )).scalar() or 0
 
-        scored = (await self.session.execute(
-            select(func.count()).select_from(RiskScore)
-        )).scalar() or 0
+        scored = (await self.session.execute(select(func.count()).select_from(RiskScore))).scalar() or 0
 
         sections.append(
-            f"PLATFORM DATA (live from database):\n"
+            f"PLATFORM DATA (live):\n"
             f"- Total claims: {med + rx:,} ({med:,} medical, {rx:,} pharmacy)\n"
-            f"- Scored claims: {scored:,}\n"
-            f"- Investigation cases: {total_cases:,} total, {active:,} active\n"
-            f"- Cases by risk level: {risk_counts['critical']} critical, "
-            f"{risk_counts['high']} high, {risk_counts['medium']} medium, "
-            f"{risk_counts['low']} low\n"
-            f"- Cases by status: {', '.join(f'{v} {k}' for k, v in status_counts.items() if v > 0)}"
+            f"- Scored: {scored:,}\n- Cases: {total_cases:,} total, {active:,} active\n"
+            f"- Risk: {risk_counts['critical']} critical, {risk_counts['high']} high, "
+            f"{risk_counts['medium']} medium, {risk_counts['low']} low\n"
+            f"- Status: {', '.join(f'{v} {k}' for k, v in status_counts.items() if v > 0)}"
         )
         sources.append("database:pipeline-stats")
 
-        # ── Top risk cases (if question is about risk/cases/counts) ──
-        if _matches_any(msg, [
-            "risk", "critical", "high", "case", "top", "worst", "severe",
-            "many", "total", "count", "number", "list", "show", "open",
-            "active", "escalat", "investigate",
-        ]):
+        if _matches_any(msg, ["risk", "critical", "high", "case", "top", "worst", "severe",
+                               "many", "total", "count", "list", "show", "open", "active", "investigate"]):
             q = await self.session.execute(
-                select(InvestigationCase)
-                .order_by(InvestigationCase.risk_score.desc())
-                .limit(10)
+                select(InvestigationCase).order_by(InvestigationCase.risk_score.desc()).limit(10)
             )
-            top_cases = list(q.scalars())
-            if top_cases:
-                case_lines = []
-                for c in top_cases:
-                    case_lines.append(
-                        f"  {c.case_id}: score={float(c.risk_score):.1f}, "
-                        f"level={c.risk_level}, status={c.status}, "
-                        f"priority={c.priority}, claim={c.claim_id} ({c.claim_type})"
-                    )
-                sections.append(
-                    "TOP 10 HIGHEST-RISK CASES:\n" + "\n".join(case_lines)
-                )
+            cases = list(q.scalars())
+            if cases:
+                lines = [f"  {c.case_id}: score={float(c.risk_score):.1f}, level={c.risk_level}, "
+                         f"status={c.status}, priority={c.priority}, claim={c.claim_id}" for c in cases]
+                sections.append("TOP 10 CASES:\n" + "\n".join(lines))
                 sources.append("database:top-cases")
 
-        # ── Rule stats (if question is about rules/detection) ──
-        if _matches_any(msg, [
-            "rule", "trigger", "detection", "pattern", "flag", "fired",
-            "common", "frequent",
-        ]):
+        if _matches_any(msg, ["rule", "trigger", "detection", "pattern", "flag", "fired", "common"]):
             q = await self.session.execute(
                 select(RuleResult.rule_id, func.count().label("cnt"))
                 .where(RuleResult.triggered == True)
                 .group_by(RuleResult.rule_id)
-                .order_by(func.count().desc())
-                .limit(10)
+                .order_by(func.count().desc()).limit(10)
             )
             top_rules = list(q)
             if top_rules:
                 rule_ids = [r[0] for r in top_rules]
-                rules_q = await self.session.execute(
+                rm = {r.rule_id: r for r in (await self.session.execute(
                     select(Rule).where(Rule.rule_id.in_(rule_ids))
-                )
-                rm = {r.rule_id: r for r in rules_q.scalars()}
-                rule_lines = []
-                for rule_id, cnt in top_rules:
-                    rule = rm.get(rule_id)
-                    desc = rule.description if rule else rule_id
-                    cat = rule.category if rule else "N/A"
-                    rule_lines.append(
-                        f"  {rule_id} ({cat}): {desc} — triggered {cnt} times"
-                    )
-                sections.append(
-                    "MOST TRIGGERED FRAUD RULES:\n" + "\n".join(rule_lines)
-                )
+                )).scalars()}
+                lines = [f"  {rid} ({rm[rid].category if rid in rm else 'N/A'}): "
+                         f"{rm[rid].description if rid in rm else rid} — {cnt} times"
+                         for rid, cnt in top_rules]
+                sections.append("TOP RULES:\n" + "\n".join(lines))
                 sources.append("database:rule-stats")
-
-        # ── Provider info (if question mentions providers) ──
-        if _matches_any(msg, ["provider", "doctor", "npi", "who"]):
-            npi_match = re.search(r'\b(\d{10})\b', msg)
-            if npi_match:
-                npi = npi_match.group(1)
-                prov_q = await self.session.execute(
-                    select(Provider).where(Provider.npi == npi)
-                )
-                prov = prov_q.scalar_one_or_none()
-                if prov:
-                    sections.append(
-                        f"PROVIDER LOOKUP (NPI {npi}):\n"
-                        f"  Name: {prov.name}, Specialty: {prov.specialty}, "
-                        f"Active: {prov.is_active}, OIG Excluded: {prov.oig_excluded}"
-                    )
-                    sources.append(f"database:provider:{npi}")
-            else:
-                subq = (
-                    select(MedicalClaim.provider_id, func.count().label("cnt"))
-                    .where(MedicalClaim.claim_id.in_(
-                        select(InvestigationCase.claim_id)
-                    ))
-                    .group_by(MedicalClaim.provider_id)
-                    .order_by(func.count().desc())
-                    .limit(5)
-                    .subquery()
-                )
-                q = await self.session.execute(
-                    select(
-                        Provider.npi, Provider.name,
-                        Provider.specialty, subq.c.cnt,
-                    )
-                    .join(subq, Provider.id == subq.c.provider_id)
-                    .order_by(subq.c.cnt.desc())
-                )
-                top_provs = list(q)
-                if top_provs:
-                    prov_lines = []
-                    for npi, name, spec, cnt in top_provs:
-                        prov_lines.append(
-                            f"  {name} (NPI: {npi}, {spec}): {cnt} cases"
-                        )
-                    sections.append(
-                        "TOP PROVIDERS BY INVESTIGATION CASES:\n"
-                        + "\n".join(prov_lines)
-                    )
-                    sources.append("database:top-providers")
 
         return "\n\n".join(sections), sources
 
     # ------------------------------------------------------------------
-    # Investigate case
+    # Conversation history
+    # ------------------------------------------------------------------
+
+    async def _load_session_history(self, session_id: str) -> list[dict]:
+        result = await self.session.execute(
+            select(ChatSession).where(ChatSession.session_id == session_id)
+        )
+        chat_session = result.scalar_one_or_none()
+        if not chat_session:
+            return []
+        msg_result = await self.session.execute(
+            select(ChatMessage).where(ChatMessage.session_id == chat_session.id)
+            .order_by(ChatMessage.created_at.desc()).limit(MAX_HISTORY_MESSAGES)
+        )
+        messages = list(reversed(list(msg_result.scalars())))
+        return [{"role": m.role, "content": m.content} for m in messages]
+
+    # ------------------------------------------------------------------
+    # Investigate
     # ------------------------------------------------------------------
 
     async def investigate_case(self, case_id: str) -> InvestigationResult:
         context = await self._gather_case_context(case_id)
-
         if "error" in context:
-            return InvestigationResult(
-                case_id=case_id,
-                summary=context["error"],
-                findings=[], risk_assessment="", recommended_actions=[],
-                confidence=0, model_used="none",
-            )
+            return InvestigationResult(case_id=case_id, summary=context["error"],
+                                       findings=[], risk_assessment="", recommended_actions=[],
+                                       confidence=0, model_used="none")
 
         system_prompt = (
-            "You are an expert healthcare fraud, waste, and abuse (FWA) investigator.\n"
-            "Analyze the case data and produce a structured investigation report.\n"
-            "Be specific, reference the evidence, and provide actionable recommendations.\n"
-            "Format your response as JSON with keys: summary, findings (array), "
-            "risk_assessment, recommended_actions (array), confidence (0.0-1.0)."
+            "You are an expert healthcare FWA investigator.\n"
+            "Analyze the case and produce a structured investigation report.\n"
+            "Format as JSON: summary, findings (array), risk_assessment, "
+            "recommended_actions (array), confidence (0.0-1.0)."
         )
-
-        prompt = (
-            f"Investigate this FWA case:\n\n"
-            f"{json.dumps(context, indent=2, default=str)}\n\n"
-            f"Provide your investigation report as JSON."
-        )
+        prompt = f"Investigate:\n{json.dumps(context, indent=2, default=str)}\nProvide JSON report."
 
         response = await self._call_ollama(prompt, system_prompt)
-
         if response:
             try:
                 clean = response.strip()
@@ -452,37 +491,26 @@ class AgentService:
                     clean = clean.split("\n", 1)[1].rsplit("```", 1)[0]
                 parsed = json.loads(clean)
                 result = InvestigationResult(
-                    case_id=case_id,
-                    summary=parsed.get("summary", ""),
+                    case_id=case_id, summary=parsed.get("summary", ""),
                     findings=parsed.get("findings", []),
                     risk_assessment=parsed.get("risk_assessment", ""),
                     recommended_actions=parsed.get("recommended_actions", []),
                     confidence=float(parsed.get("confidence", 0.7)),
-                    model_used=self.model,
-                )
+                    model_used=self.model)
             except (json.JSONDecodeError, ValueError):
                 result = InvestigationResult(
-                    case_id=case_id,
-                    summary=response[:500],
-                    findings=[response],
-                    risk_assessment="See full analysis above",
-                    recommended_actions=["Review the full analysis"],
-                    confidence=0.5,
-                    model_used=self.model,
-                )
+                    case_id=case_id, summary=response[:500], findings=[response],
+                    risk_assessment="See analysis above",
+                    recommended_actions=["Review full analysis"],
+                    confidence=0.5, model_used=self.model)
         else:
             result = self._generate_fallback_analysis(case_id, context)
 
         audit = AuditService(self.session)
         await audit.log_event(
-            event_type="agent_investigation",
-            actor=f"agent:{result.model_used}",
-            action=f"Investigated case {case_id}",
-            resource_type="case",
-            resource_id=case_id,
-            details={"model": result.model_used, "confidence": result.confidence},
-        )
-
+            event_type="agent_investigation", actor=f"agent:{result.model_used}",
+            action=f"Investigated case {case_id}", resource_type="case", resource_id=case_id,
+            details={"model": result.model_used, "confidence": result.confidence})
         return result
 
     def _generate_fallback_analysis(self, case_id: str, context: dict) -> InvestigationResult:
@@ -493,156 +521,157 @@ class AgentService:
 
         findings = []
         for r in rules:
-            sev_label = "High" if r["severity"] >= 2.0 else "Medium" if r["severity"] >= 1.0 else "Low"
-            findings.append(
-                f"[{sev_label} Severity] {r.get('description') or r['rule_id']}: "
-                f"{r.get('details', 'Triggered')} "
-                f"(Confidence: {r['confidence']:.0%})"
-            )
+            sev = "High" if r["severity"] >= 2 else "Medium" if r["severity"] >= 1 else "Low"
+            findings.append(f"[{sev}] {r.get('description') or r['rule_id']}: "
+                           f"{r.get('details', 'Triggered')} (Conf: {r['confidence']:.0%})")
 
         amount = claim.get("amount_billed", 0)
-        summary = (
-            f"Case {case_id} involves a {context.get('claim_type', 'unknown')} claim "
-            f"for ${amount:,.2f} with a risk score of {risk.get('total', 0):.1f}/100 "
-            f"({risk.get('level', 'unknown')} risk). "
-            f"{len(rules)} fraud detection rule(s) triggered."
-        )
+        summary = (f"Case {case_id}: {context.get('claim_type', 'unknown')} claim "
+                   f"${amount:,.2f}, risk {risk.get('total', 0):.1f}/100 ({risk.get('level', 'unknown')}). "
+                   f"{len(rules)} rule(s) triggered.")
         if provider:
             summary += f" Provider: {provider.get('name', 'N/A')} ({provider.get('specialty', 'N/A')})."
 
-        fraud_types = list({r.get("fraud_type", "") for r in rules if r.get("fraud_type")})
-
         actions = []
         if provider.get("oig_excluded"):
-            actions.append("URGENT: Provider is OIG-excluded — report to compliance immediately")
-        if any(r["severity"] >= 2.0 for r in rules):
-            actions.append("Escalate for SIU review due to high-severity findings")
+            actions.append("URGENT: OIG-excluded provider — report to compliance")
+        if any(r["severity"] >= 2 for r in rules):
+            actions.append("Escalate for SIU review — high-severity findings")
+        fraud_types = list({r.get("fraud_type", "") for r in rules if r.get("fraud_type")})
         if fraud_types:
-            actions.append(f"Investigate {', '.join(ft.replace('_', ' ') for ft in fraud_types)} pattern(s)")
-        if context.get("claim_type") == "medical":
-            actions.append("Pull provider billing history for the past 12 months")
-            actions.append("Verify medical necessity with clinical documentation")
-        else:
-            actions.append("Check prescription validity and prescriber DEA registration")
-            actions.append("Review member controlled substance fill history")
-        actions.append("Contact member for verification if applicable")
+            actions.append(f"Investigate: {', '.join(ft.replace('_', ' ') for ft in fraud_types)}")
+        actions.extend(["Pull provider billing history (12 months)", "Verify medical necessity",
+                        "Contact member for verification"])
 
-        risk_text = (
-            f"Risk level: {risk.get('level', 'unknown').upper()}. "
-            f"Total score: {risk.get('total', 0):.1f}/100. "
-        )
+        risk_text = f"Level: {risk.get('level', 'unknown').upper()}, Score: {risk.get('total', 0):.1f}/100."
         if fraud_types:
-            risk_text += f"Detected fraud patterns: {', '.join(ft.replace('_', ' ') for ft in fraud_types)}. "
-        if rules:
-            top_severity = max(r["severity"] for r in rules)
-            risk_text += f"Highest rule severity: {top_severity:.1f}/3.0."
+            risk_text += f" Patterns: {', '.join(ft.replace('_', ' ') for ft in fraud_types)}."
 
         return InvestigationResult(
-            case_id=case_id,
-            summary=summary,
-            findings=findings,
-            risk_assessment=risk_text,
-            recommended_actions=actions,
-            confidence=0.75,
-            model_used="data-engine",
-        )
+            case_id=case_id, summary=summary, findings=findings,
+            risk_assessment=risk_text, recommended_actions=actions,
+            confidence=0.75, model_used="data-engine")
 
     # ------------------------------------------------------------------
     # Chat
     # ------------------------------------------------------------------
 
-    async def chat(self, message: str, case_id: str | None = None) -> ChatResponse:
-        context_parts: list[str] = []
+    async def chat(self, message: str, case_id: str | None = None,
+                   session_id: str | None = None) -> ChatResponse:
+        t_start = time.time()
         sources: list[str] = []
-
         try:
-            # ── 1. Always gather live data from the database (RAG) ──
-            data_context, data_sources = await self._gather_data_context(message)
-            if data_context:
-                context_parts.append(data_context)
-                sources.extend(data_sources)
+            history = []
+            if session_id:
+                history = await self._load_session_history(session_id)
 
-            # ── 2. Add case-specific context if a case is selected ──
+            data_context, data_sources = await self._gather_data_context(message)
+            sources.extend(data_sources)
+
+            context_parts = [data_context] if data_context else []
             if case_id:
                 case_ctx = await self._gather_case_context(case_id)
                 if "error" not in case_ctx:
-                    context_parts.append(
-                        f"SELECTED CASE DETAIL:\n"
-                        f"{json.dumps(case_ctx, indent=2, default=str)}"
-                    )
+                    context_parts.append(f"SELECTED CASE:\n{json.dumps(case_ctx, indent=2, default=str)}")
                     sources.append(f"case:{case_id}")
                     for r in case_ctx.get("triggered_rules", []):
                         sources.append(f"rule:{r['rule_id']}")
 
-            # ── 3. Build prompt with data context ──
+            ws_note = f"\nScoped to workspace {self.workspace_id}." if self.workspace_id else ""
             system_prompt = (
-                "You are an AI assistant for the ArqAI healthcare fraud, waste, and "
-                "abuse (FWA) detection platform. You have access to LIVE DATA from "
-                "the platform database, provided below.\n\n"
-                "IMPORTANT RULES:\n"
-                "- ALWAYS use the provided data to answer questions. Never say "
-                "\"check your system\" or give generic advice.\n"
-                "- Quote exact numbers from the data. If the data says 42 critical "
-                "cases, say \"There are 42 critical cases.\"\n"
-                "- If the data doesn't contain enough information to fully answer, "
-                "say what you can from the data and note what's missing.\n"
-                "- Format responses with markdown: use **bold** for key numbers, "
-                "bullet lists for breakdowns, and tables when comparing data.\n"
-                "- Be concise and direct. Lead with the answer, then provide detail."
+                "You are an AI assistant for the ArqAI FWA detection platform. "
+                "Use the provided LIVE DATA to answer questions accurately.\n"
+                "RULES: Always quote exact numbers. Use markdown formatting. "
+                "Be concise. Reference case/rule IDs exactly.\n"
+                f"{ws_note}\n\n{TOOL_DEFINITIONS}"
             )
 
-            context_block = "\n\n---\n\n".join(context_parts) if context_parts else ""
+            context_block = "\n\n---\n\n".join(context_parts)
             prompt = f"{message}\n\n{context_block}" if context_block else message
 
-            response = await self._call_ollama(prompt, system_prompt)
+            response, tool_sources = await self._react_loop(prompt, system_prompt, history or None)
+            sources.extend(tool_sources)
 
             if response:
-                return ChatResponse(
-                    response=response,
-                    sources_cited=sources,
-                    model_used=self.model,
-                )
+                response = linkify_citations(response)
+                duration = time.time() - t_start
+                agent_chat_requests_total.labels(model_used=self.model).inc()
+                agent_chat_duration_seconds.observe(duration)
+                return ChatResponse(response=response, sources_cited=sources,
+                                    model_used=self.model, confidence="high" if sources else "medium")
 
-            # ── 4. Data-driven fallback (LLM unavailable) ──
-            return await self._data_driven_chat(message, case_id, sources)
+            result = await self._data_driven_chat(message, case_id, sources)
+            result.response = linkify_citations(result.response)
+            result.confidence = "high"
+            duration = time.time() - t_start
+            agent_chat_requests_total.labels(model_used="data-engine").inc()
+            agent_chat_duration_seconds.observe(duration)
+            return result
 
         except Exception as exc:
             logger.error("Chat error: %s", exc, exc_info=True)
             return ChatResponse(
-                response=f"I encountered an error processing your request: {type(exc).__name__}: {exc}. "
-                         "Please try again or rephrase your question.",
-                sources_cited=sources,
-                model_used="error-fallback",
-            )
+                response=f"Error: {type(exc).__name__}: {exc}. Please try again.",
+                sources_cited=sources, model_used="error-fallback", confidence="low")
 
     # ------------------------------------------------------------------
-    # Data-driven fallback chat
+    # Streaming chat
     # ------------------------------------------------------------------
 
-    async def _data_driven_chat(
-        self, message: str, case_id: str | None, sources: list[str]
-    ) -> ChatResponse:
+    async def chat_stream(self, message: str, case_id: str | None = None,
+                          session_id: str | None = None) -> AsyncIterator[dict]:
+        sources: list[str] = []
+        history = await self._load_session_history(session_id) if session_id else []
+
+        data_context, data_sources = await self._gather_data_context(message)
+        sources.extend(data_sources)
+        context_parts = [data_context] if data_context else []
+        if case_id:
+            case_ctx = await self._gather_case_context(case_id)
+            if "error" not in case_ctx:
+                context_parts.append(f"CASE:\n{json.dumps(case_ctx, indent=2, default=str)}")
+                sources.append(f"case:{case_id}")
+
+        system_prompt = "You are an AI assistant for ArqAI FWA detection. Use provided data. Markdown format."
+        context_block = "\n\n---\n\n".join(context_parts)
+        prompt = f"{message}\n\n{context_block}" if context_block else message
+
+        full = ""
+        async for token in self._call_ollama_stream(prompt, system_prompt, history or None):
+            full += token
+            yield {"token": token, "done": False}
+
+        if full:
+            full = linkify_citations(self._strip_think_tags(full))
+            yield {"done": True, "response": full, "sources_cited": sources,
+                   "model_used": self.model, "confidence": "high" if sources else "medium"}
+        else:
+            result = await self._data_driven_chat(message, case_id, sources)
+            result.response = linkify_citations(result.response)
+            yield {"done": True, "response": result.response, "sources_cited": result.sources_cited,
+                   "model_used": result.model_used, "confidence": "high"}
+
+    # ------------------------------------------------------------------
+    # Data-driven fallback
+    # ------------------------------------------------------------------
+
+    async def _data_driven_chat(self, message: str, case_id: str | None, sources: list[str]) -> ChatResponse:
         msg = message.lower().strip()
-
-        # Case-scoped questions
         if case_id:
             ctx = await self._gather_case_context(case_id)
             if "error" in ctx:
                 return ChatResponse(response=ctx["error"], sources_cited=sources)
             return self._answer_case_question(msg, ctx, sources)
-
-        # General questions
-        if _matches_any(msg, ["how many", "total", "count", "overview", "summary", "stats", "statistics", "dashboard"]):
+        if _matches_any(msg, ["how many", "total", "count", "overview", "summary", "stats", "dashboard"]):
             return await self._answer_stats(sources)
-        if _matches_any(msg, ["high risk", "critical", "top risk", "worst", "most severe", "riskiest"]):
+        if _matches_any(msg, ["high risk", "critical", "top risk", "worst", "riskiest"]):
             return await self._answer_top_risk(sources)
         if _matches_any(msg, ["rule", "what rules", "which rules", "detection", "trigger"]):
             return await self._answer_rules(sources)
         if _matches_any(msg, ["provider", "doctor", "npi"]):
             return await self._answer_provider(msg, sources)
-        if _matches_any(msg, ["help", "what can you", "capabilities", "what do you"]):
+        if _matches_any(msg, ["help", "what can you", "capabilities"]):
             return self._answer_help(sources)
-
         return await self._answer_general(sources)
 
     def _answer_case_question(self, msg: str, ctx: dict, sources: list[str]) -> ChatResponse:
@@ -651,108 +680,62 @@ class AgentService:
         provider = ctx.get("provider", {})
         risk = ctx.get("risk_score_detail", {})
 
-        # Explain / analyze
-        if _matches_any(msg, ["why", "explain", "what happened", "what's wrong", "what is wrong",
-                               "tell me about", "analyze", "detail", "describe"]):
-            lines = [f"**Case {ctx['case_id']}** — {ctx['risk_level'].upper()} risk (score: {ctx['risk_score']:.1f}/100)\n"]
+        if _matches_any(msg, ["why", "explain", "what happened", "tell me", "analyze", "detail", "describe"]):
+            lines = [f"**Case {ctx['case_id']}** — {ctx['risk_level'].upper()} risk ({ctx['risk_score']:.1f}/100)\n"]
             if claim:
                 if ctx["claim_type"] == "medical":
                     lines.append(f"**Claim:** CPT {claim.get('cpt_code', 'N/A')}, "
-                                 f"Dx {claim.get('diagnosis_primary', 'N/A')}, "
-                                 f"billed ${claim.get('amount_billed', 0):,.2f}, "
-                                 f"date {claim.get('service_date', 'N/A')}")
+                                 f"Dx {claim.get('diagnosis_primary', 'N/A')}, ${claim.get('amount_billed', 0):,.2f}")
                 else:
-                    ctrl = "controlled substance" if claim.get("is_controlled") else "non-controlled"
-                    lines.append(f"**Claim:** {claim.get('drug_name', 'N/A')} "
-                                 f"(NDC {claim.get('ndc_code', 'N/A')}), "
-                                 f"billed ${claim.get('amount_billed', 0):,.2f}, {ctrl}")
+                    lines.append(f"**Claim:** {claim.get('drug_name', 'N/A')} (NDC {claim.get('ndc_code', 'N/A')}), "
+                                 f"${claim.get('amount_billed', 0):,.2f}")
             if provider:
                 oig = " **[OIG EXCLUDED]**" if provider.get("oig_excluded") else ""
-                lines.append(f"\n**Provider:** {provider.get('name', 'N/A')} "
-                             f"(NPI: {provider.get('npi', 'N/A')}, {provider.get('specialty', 'N/A')}){oig}")
+                lines.append(f"\n**Provider:** {provider.get('name')} ({provider.get('specialty')}){oig}")
             if rules:
-                lines.append(f"\n**{len(rules)} rule(s) triggered:**")
+                lines.append(f"\n**{len(rules)} rule(s):**")
                 for r in sorted(rules, key=lambda x: x["severity"], reverse=True):
                     lines.append(f"- **{r['rule_id']}** — {r.get('description') or r.get('details', 'Triggered')} "
-                                 f"(severity {r['severity']:.1f}, confidence {r['confidence']:.0%})")
+                                 f"(sev {r['severity']:.1f}, conf {r['confidence']:.0%})")
             return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
-        # Rules
-        if _matches_any(msg, ["rule", "trigger", "flag", "fired"]):
+        if _matches_any(msg, ["rule", "trigger", "flag"]):
             if not rules:
-                return ChatResponse(response=f"No rules triggered for case {ctx['case_id']}.", sources_cited=sources)
-            lines = [f"**{len(rules)} rule(s) triggered for {ctx['case_id']}:**\n"]
+                return ChatResponse(response=f"No rules triggered for {ctx['case_id']}.", sources_cited=sources)
+            lines = [f"**{len(rules)} rule(s) for {ctx['case_id']}:**\n"]
             for r in sorted(rules, key=lambda x: x["severity"], reverse=True):
-                lines.append(f"- **{r['rule_id']}** ({r.get('category', 'N/A')}): "
-                             f"{r.get('description') or r.get('details', 'Triggered')} — "
-                             f"severity {r['severity']:.1f}/3, confidence {r['confidence']:.0%}")
-                if r.get("evidence"):
-                    ev = ", ".join(f"{k}: {v}" for k, v in list(r["evidence"].items())[:3])
-                    lines.append(f"  Evidence: {ev}")
+                lines.append(f"- **{r['rule_id']}**: {r.get('description') or r.get('details', 'Triggered')}")
             return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
-        # Risk / score
         if _matches_any(msg, ["risk", "score"]):
-            contributions = risk.get("contributions", {})
-            lines = [f"**Risk score for {ctx['case_id']}:** {risk.get('total', 0):.1f}/100 ({risk.get('level', 'N/A')})\n"]
-            if contributions:
-                lines.append("**Score breakdown by rule:**")
-                for rule_id, contrib in sorted(
-                    contributions.items(),
-                    key=lambda x: x[1].get("contribution", 0) if isinstance(x[1], dict) else 0,
-                    reverse=True,
-                ):
-                    if isinstance(contrib, dict):
-                        lines.append(f"  - {rule_id}: +{contrib.get('contribution', 0):.2f} "
-                                     f"(weight: {contrib.get('weight', 0)}, severity: {contrib.get('severity', 0):.1f})")
-                    else:
-                        lines.append(f"  - {rule_id}: +{float(contrib):.2f}")
+            lines = [f"**Risk: {risk.get('total', 0):.1f}/100 ({risk.get('level', 'N/A')})**"]
+            contribs = risk.get("contributions", {})
+            if contribs:
+                lines.append("\n**Breakdown:**")
+                for rid, c in sorted(contribs.items(),
+                                     key=lambda x: x[1].get("contribution", 0) if isinstance(x[1], dict) else 0,
+                                     reverse=True):
+                    if isinstance(c, dict):
+                        lines.append(f"  - {rid}: +{c.get('contribution', 0):.2f}")
             return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
-        # Recommendations
-        if _matches_any(msg, ["recommend", "action", "should", "next step", "what to do"]):
+        if _matches_any(msg, ["recommend", "action", "should", "next step"]):
             actions = []
             if provider and provider.get("oig_excluded"):
-                actions.append("URGENT: Provider is OIG-excluded. Report to compliance immediately.")
-            if any(r["severity"] >= 2.0 for r in rules):
-                actions.append("Escalate to SIU for detailed review — high-severity findings present.")
-            fraud_types = list({r.get("fraud_type", "") for r in rules if r.get("fraud_type")})
-            if fraud_types:
-                actions.append(f"Focus investigation on: {', '.join(ft.replace('_', ' ') for ft in fraud_types)}")
-            actions.append("Review provider billing patterns and history.")
-            actions.append("Verify medical necessity with supporting documentation.")
-            actions.append("Contact member for verification if applicable.")
+                actions.append("URGENT: OIG-excluded provider — report to compliance")
+            if any(r["severity"] >= 2 for r in rules):
+                actions.append("Escalate to SIU for review")
+            actions.extend(["Review provider billing history", "Verify medical necessity", "Contact member"])
             return ChatResponse(
-                response=f"**Recommended actions for {ctx['case_id']}:**\n\n"
-                         + "\n".join(f"{i+1}. {a}" for i, a in enumerate(actions)),
-                sources_cited=sources,
-            )
+                response=f"**Actions for {ctx['case_id']}:**\n\n" + "\n".join(f"{i+1}. {a}" for i, a in enumerate(actions)),
+                sources_cited=sources)
 
-        # Provider
-        if _matches_any(msg, ["provider", "doctor", "who"]):
-            if not provider:
-                return ChatResponse(response="No provider information available for this case.", sources_cited=sources)
-            oig = " **[OIG EXCLUDED]**" if provider.get("oig_excluded") else ""
-            return ChatResponse(
-                response=f"**Provider:** {provider.get('name', 'N/A')}\n"
-                         f"- NPI: {provider.get('npi', 'N/A')}\n"
-                         f"- Specialty: {provider.get('specialty', 'N/A')}{oig}",
-                sources_cited=sources,
-            )
-
-        # Default case summary
-        lines = [
-            f"**{ctx['case_id']}** — {ctx['risk_level'].upper()} risk, score {ctx['risk_score']:.1f}/100, "
-            f"priority {ctx.get('priority', 'N/A')}, status: {ctx.get('status', 'N/A')}",
-            f"Claim type: {ctx['claim_type']}, Claim ID: {ctx['claim_id']}",
-            f"Rules triggered: {len(rules)}",
-        ]
+        lines = [f"**{ctx['case_id']}** — {ctx['risk_level'].upper()}, score {ctx['risk_score']:.1f}/100, "
+                 f"status: {ctx.get('status')}, {len(rules)} rules triggered"]
         if claim:
-            lines.append(f"Amount billed: ${claim.get('amount_billed', 0):,.2f}")
-        lines.append("\nAsk me to *explain*, show *rules*, *risk score*, *recommendations*, or *provider* info.")
+            lines.append(f"Amount: ${claim.get('amount_billed', 0):,.2f}")
+        lines.append("\nAsk: *explain*, *rules*, *risk score*, *recommendations*, or *provider*")
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
-
-    # --- General answers ---
 
     async def _answer_stats(self, sources: list[str]) -> ChatResponse:
         med = (await self.session.execute(select(func.count()).select_from(MedicalClaim))).scalar() or 0
@@ -760,141 +743,72 @@ class AgentService:
         cases = (await self.session.execute(select(func.count()).select_from(InvestigationCase))).scalar() or 0
         active = (await self.session.execute(
             select(func.count()).select_from(InvestigationCase).where(
-                InvestigationCase.status.in_(["open", "under_review", "escalated"])
-            )
+                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
         )).scalar() or 0
         scored = (await self.session.execute(select(func.count()).select_from(RiskScore))).scalar() or 0
-        high = (await self.session.execute(
-            select(func.count()).select_from(RiskScore).where(RiskScore.risk_level.in_(["high", "critical"]))
-        )).scalar() or 0
-        lines = [
-            "**Pipeline Overview:**\n",
-            f"- **{med:,}** medical + **{rx:,}** pharmacy = **{med + rx:,}** total claims",
-            f"- **{scored:,}** scored, **{med + rx - scored:,}** unscored",
-            f"- **{high:,}** high/critical risk flagged",
-            f"- **{cases:,}** investigation cases ({active:,} active)",
-        ]
-        return ChatResponse(response="\n".join(lines), sources_cited=sources)
+        return ChatResponse(
+            response=f"**Pipeline Overview:**\n\n- **{med:,}** medical + **{rx:,}** pharmacy = **{med + rx:,}** claims\n"
+                     f"- **{scored:,}** scored, **{med + rx - scored:,}** unscored\n"
+                     f"- **{cases:,}** cases ({active:,} active)",
+            sources_cited=sources)
 
     async def _answer_top_risk(self, sources: list[str]) -> ChatResponse:
-        q = await self.session.execute(
+        cases = list((await self.session.execute(
             select(InvestigationCase)
             .where(InvestigationCase.status.in_(["open", "under_review", "escalated"]))
-            .order_by(InvestigationCase.risk_score.desc())
-            .limit(10)
-        )
-        cases = list(q.scalars())
+            .order_by(InvestigationCase.risk_score.desc()).limit(10)
+        )).scalars())
         if not cases:
-            return ChatResponse(response="No active investigation cases found.", sources_cited=sources)
-        lines = [f"**Top {len(cases)} highest-risk active cases:**\n"]
+            return ChatResponse(response="No active cases found.", sources_cited=sources)
+        lines = [f"**Top {len(cases)} active cases:**\n"]
         for c in cases:
-            lines.append(f"- **{c.case_id}** — score {float(c.risk_score):.1f} ({c.risk_level}), "
-                         f"priority {c.priority}, claim {c.claim_id}")
-        lines.append("\nSelect a case above to investigate further.")
+            lines.append(f"- **{c.case_id}** — {float(c.risk_score):.1f} ({c.risk_level}), {c.priority}")
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
     async def _answer_rules(self, sources: list[str]) -> ChatResponse:
-        q = await self.session.execute(
+        top = list(await self.session.execute(
             select(RuleResult.rule_id, func.count().label("cnt"))
             .where(RuleResult.triggered == True)
-            .group_by(RuleResult.rule_id)
-            .order_by(func.count().desc())
-            .limit(10)
-        )
-        top = list(q)
+            .group_by(RuleResult.rule_id).order_by(func.count().desc()).limit(10)
+        ))
         if not top:
-            return ChatResponse(response="No rule results found yet. Run the pipeline first.", sources_cited=sources)
-        rule_ids = [r[0] for r in top]
-        rules_q = await self.session.execute(select(Rule).where(Rule.rule_id.in_(rule_ids)))
-        rm = {r.rule_id: r for r in rules_q.scalars()}
-        lines = ["**Most frequently triggered rules:**\n"]
-        for rule_id, cnt in top:
-            rule = rm.get(rule_id)
-            desc = rule.description if rule else rule_id
-            cat = rule.category if rule else "N/A"
-            lines.append(f"- **{rule_id}** ({cat}): {desc} — triggered **{cnt}** times")
+            return ChatResponse(response="No rule results yet. Run the pipeline first.", sources_cited=sources)
+        rm = {r.rule_id: r for r in (await self.session.execute(
+            select(Rule).where(Rule.rule_id.in_([r[0] for r in top]))
+        )).scalars()}
+        lines = ["**Top triggered rules:**\n"]
+        for rid, cnt in top:
+            r = rm.get(rid)
+            lines.append(f"- **{rid}** ({r.category if r else 'N/A'}): {r.description if r else rid} — **{cnt}** times")
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
     async def _answer_provider(self, msg: str, sources: list[str]) -> ChatResponse:
         npi_match = re.search(r'\b(\d{10})\b', msg)
         if npi_match:
-            npi = npi_match.group(1)
-            prov_q = await self.session.execute(select(Provider).where(Provider.npi == npi))
-            prov = prov_q.scalar_one_or_none()
+            prov = (await self.session.execute(
+                select(Provider).where(Provider.npi == npi_match.group(1))
+            )).scalar_one_or_none()
             if prov:
-                flagged = (await self.session.execute(
-                    select(func.count()).select_from(InvestigationCase).where(
-                        InvestigationCase.claim_id.in_(
-                            select(MedicalClaim.claim_id).where(MedicalClaim.provider_id == prov.id)
-                        )
-                    )
-                )).scalar() or 0
                 oig = " **[OIG EXCLUDED]**" if prov.oig_excluded else ""
                 return ChatResponse(
-                    response=f"**Provider: {prov.name}**{oig}\n- NPI: {prov.npi}\n"
-                             f"- Specialty: {prov.specialty}\n- Active: {'Yes' if prov.is_active else 'No'}\n"
-                             f"- Investigation cases: {flagged}",
-                    sources_cited=sources,
-                )
-            return ChatResponse(response=f"No provider found with NPI {npi}.", sources_cited=sources)
-
-        # Top providers by case count
-        subq = (
-            select(MedicalClaim.provider_id, func.count().label("cnt"))
-            .where(MedicalClaim.claim_id.in_(select(InvestigationCase.claim_id)))
-            .group_by(MedicalClaim.provider_id)
-            .order_by(func.count().desc())
-            .limit(5)
-            .subquery()
-        )
-        q = await self.session.execute(
-            select(Provider.npi, Provider.name, Provider.specialty, subq.c.cnt)
-            .join(subq, Provider.id == subq.c.provider_id)
-            .order_by(subq.c.cnt.desc())
-        )
-        top = list(q)
-        if not top:
-            return ChatResponse(response="No providers with investigation cases found.", sources_cited=sources)
-        lines = ["**Providers with the most investigation cases:**\n"]
-        for npi, name, spec, cnt in top:
-            lines.append(f"- **{name}** (NPI: {npi}, {spec}) — {cnt} case(s)")
-        return ChatResponse(response="\n".join(lines), sources_cited=sources)
+                    response=f"**{prov.name}**{oig}\n- NPI: {prov.npi}\n- Specialty: {prov.specialty}",
+                    sources_cited=sources)
+            return ChatResponse(response=f"No provider with NPI {npi_match.group(1)}.", sources_cited=sources)
+        return ChatResponse(response="Provide a 10-digit NPI to look up a provider.", sources_cited=sources)
 
     def _answer_help(self, sources: list[str]) -> ChatResponse:
         return ChatResponse(
-            response=(
-                "I'm your investigation assistant. Here's what I can help with:\n\n"
-                "**With a case selected:**\n"
-                "- \"Explain this case\" — full case breakdown\n"
-                "- \"What rules triggered?\" — detailed rule analysis\n"
-                "- \"Show risk score\" — score breakdown by rule\n"
-                "- \"What should I do?\" — recommended next steps\n"
-                "- \"Tell me about the provider\" — provider details\n"
-                "- Click **Investigate** for a full structured analysis\n\n"
-                "**General questions:**\n"
-                "- \"Show me stats\" — pipeline overview\n"
-                "- \"Top risk cases\" — highest-risk active cases\n"
-                "- \"Most triggered rules\" — common fraud patterns\n"
-                "- \"Provider with NPI 1234567890\" — provider lookup"
-            ),
-            sources_cited=sources,
-        )
+            response="**I can help with:**\n\n"
+                     "**With a case:** explain, rules, risk score, recommendations, provider\n"
+                     "**General:** stats, top risk cases, most triggered rules, provider lookup (NPI)",
+            sources_cited=sources)
 
     async def _answer_general(self, sources: list[str]) -> ChatResponse:
         active = (await self.session.execute(
             select(func.count()).select_from(InvestigationCase).where(
-                InvestigationCase.status.in_(["open", "under_review", "escalated"])
-            )
+                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
         )).scalar() or 0
         return ChatResponse(
-            response=(
-                f"I can help you investigate fraud cases and analyze patterns. "
-                f"There are currently **{active}** active investigation cases.\n\n"
-                f"Try asking me:\n"
-                f"- \"Show me stats\" for a pipeline overview\n"
-                f"- \"Top risk cases\" for the highest-risk cases\n"
-                f"- \"Which rules trigger most?\" for common fraud patterns\n\n"
-                f"Or **select a case** above and ask me to explain it, show its rules, or recommend next steps."
-            ),
-            sources_cited=sources,
-        )
+            response=f"**{active}** active cases. Try: \"show stats\", \"top risk cases\", \"which rules trigger most?\"\n"
+                     "Or **select a case** to investigate.",
+            sources_cited=sources)

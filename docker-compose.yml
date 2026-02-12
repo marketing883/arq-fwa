@@ -52,6 +52,22 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  worker:
+    build: ./backend
+    command: python worker.py
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arqai}:${POSTGRES_PASSWORD:-arqai_dev_password}@postgres:5432/${POSTGRES_DB:-arqai_fwa}
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     ports:

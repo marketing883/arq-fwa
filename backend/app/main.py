@@ -1,7 +1,10 @@
 import logging
+import time
 import traceback
 from contextlib import asynccontextmanager
 
+import httpx
+import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,6 +27,7 @@ from app.api.agents import router as agents_router
 from app.api.pipeline import router as pipeline_router
 from app.api.workspaces import router as workspaces_router
 from app.api.providers import router as providers_router
+from app.api.metrics import router as metrics_router
 
 
 @asynccontextmanager
@@ -43,13 +47,35 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── CORS (tightened) ─────────────────────────────────────────────────────────
+origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:80", "http://localhost"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
+
+# ── Security headers middleware ──────────────────────────────────────────────
+from app.middleware.security_headers import SecurityHeadersMiddleware  # noqa: E402
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ── Rate limiting middleware ─────────────────────────────────────────────────
+from app.middleware.rate_limit import RateLimitMiddleware  # noqa: E402
+
+app.add_middleware(RateLimitMiddleware)
+
+# ── Request context middleware (request ID + timing) ─────────────────────────
+from app.middleware.request_context import RequestContextMiddleware  # noqa: E402
+
+app.add_middleware(RequestContextMiddleware)
+
+# ── Prometheus metrics middleware ────────────────────────────────────────────
+from app.middleware.metrics import PrometheusMiddleware  # noqa: E402
+
+app.add_middleware(PrometheusMiddleware)
 
 
 @app.exception_handler(Exception)
@@ -80,8 +106,74 @@ app.include_router(agents_router)
 app.include_router(pipeline_router)
 app.include_router(workspaces_router)
 app.include_router(providers_router)
+app.include_router(metrics_router)
+
+
+# ── Health check (expanded) ──────────────────────────────────────────────────
+
+_health_cache: dict = {}
+_health_cache_ts: float = 0.0
+HEALTH_CACHE_TTL = 10.0  # seconds
 
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "environment": settings.environment}
+    global _health_cache, _health_cache_ts
+
+    now = time.time()
+    if _health_cache and (now - _health_cache_ts) < HEALTH_CACHE_TTL:
+        return _health_cache
+
+    components: dict = {}
+
+    # Database
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+        components["database"] = {"status": "connected"}
+    except Exception as exc:
+        components["database"] = {"status": "disconnected", "error": str(exc)}
+
+    # Redis
+    try:
+        r = aioredis.from_url(settings.redis_url, decode_responses=True)
+        await r.ping()
+        await r.aclose()
+        components["redis"] = {"status": "connected"}
+    except Exception as exc:
+        components["redis"] = {"status": "disconnected", "error": str(exc)}
+
+    # Ollama
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(
+                f"{settings.ollama_url}/api/show",
+                json={"name": settings.llm_model},
+            )
+            if resp.status_code == 200:
+                components["ollama"] = {"status": "ready", "model": settings.llm_model}
+            else:
+                components["ollama"] = {"status": "loading", "model": settings.llm_model}
+    except Exception:
+        components["ollama"] = {"status": "unavailable"}
+
+    # Overall status
+    db_ok = components["database"]["status"] == "connected"
+    redis_ok = components["redis"]["status"] == "connected"
+
+    if db_ok and redis_ok:
+        overall = "healthy"
+    elif not db_ok:
+        overall = "unhealthy"
+    else:
+        overall = "degraded"
+
+    result = {
+        "status": overall,
+        "environment": settings.environment,
+        "components": components,
+    }
+
+    _health_cache = result
+    _health_cache_ts = now
+    return result

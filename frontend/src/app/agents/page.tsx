@@ -17,6 +17,7 @@ import {
   CaseSummary,
   InvestigateResponse,
   AgentStatus,
+  AgentChatResponse,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -64,6 +65,7 @@ interface Message {
   timestamp: Date;
   model?: string;
   sources?: string[];
+  confidence?: string;
   investigation?: InvestigateResponse;
 }
 
@@ -175,6 +177,9 @@ export default function AgentsPage() {
   // Agent status
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
 
+  // Session state
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
   // Case selector state
   const [caseList, setCaseList] = useState<CaseSummary[]>([]);
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
@@ -252,7 +257,12 @@ export default function AgentsPage() {
     setIsTyping(true);
 
     try {
-      const result = await agents.chat(trimmed, selectedCase);
+      const result = await agents.chat(trimmed, selectedCase, sessionId, activeWorkspace);
+
+      // Track session from first response
+      if (result.session_id && !sessionId) {
+        setSessionId(result.session_id);
+      }
 
       const assistantMessage: Message = {
         role: "assistant",
@@ -260,6 +270,7 @@ export default function AgentsPage() {
         timestamp: new Date(),
         model: result.model_used,
         sources: result.sources_cited,
+        confidence: result.confidence,
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
@@ -272,7 +283,7 @@ export default function AgentsPage() {
     } finally {
       setIsTyping(false);
     }
-  }, [input, isTyping, selectedCase]);
+  }, [input, isTyping, selectedCase, sessionId, activeWorkspace]);
 
   /* ─── Investigate case ─── */
 
@@ -288,7 +299,7 @@ export default function AgentsPage() {
     setIsTyping(true);
 
     try {
-      const result = await agents.investigate(selectedCase);
+      const result = await agents.investigate(selectedCase, undefined, activeWorkspace);
 
       const assistantMessage: Message = {
         role: "assistant",
@@ -585,6 +596,20 @@ export default function AgentsPage() {
                 {msg.model && (
                   <span className="text-[10px] text-gray-300 font-mono">
                     {msg.model}
+                  </span>
+                )}
+                {msg.confidence && (
+                  <span
+                    className={cn(
+                      "text-[10px] font-medium",
+                      msg.confidence === "high"
+                        ? "text-green-500"
+                        : msg.confidence === "medium"
+                          ? "text-amber-500"
+                          : "text-red-400",
+                    )}
+                  >
+                    {msg.confidence} confidence
                   </span>
                 )}
                 {msg.sources && msg.sources.length > 0 && (

@@ -381,10 +381,38 @@ export interface PipelineRunResponse {
   processing_time_seconds: number;
 }
 
+export interface PipelineJobStatus {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  result?: PipelineRunResponse;
+  error?: string;
+  queued_at?: string;
+}
+
+export interface PipelineRunRecord {
+  run_id: string;
+  workspace_id: number | null;
+  batch_id: string;
+  started_at: string;
+  completed_at: string | null;
+  status: string;
+  duration_seconds: number | null;
+  stats: Record<string, unknown>;
+  quality_report: Record<string, unknown> | null;
+}
+
 export const pipeline = {
-  runFull: (body: { limit?: number; workspace_id?: string | null }) =>
+  runFull: (body: { limit?: number; workspace_id?: string | null; force_reprocess?: boolean }) =>
     fetchAPI<PipelineRunResponse>("/pipeline/run-full", { method: "POST", body: JSON.stringify(body) }),
   status: () => fetchAPI<Record<string, number>>("/pipeline/status"),
+  enqueue: (body: { limit?: number; workspace_id?: string | null }) =>
+    fetchAPI<{ job_id: string; status: string }>("/pipeline/enqueue", { method: "POST", body: JSON.stringify(body) }),
+  jobStatus: (jobId: string) => fetchAPI<PipelineJobStatus>(`/pipeline/jobs/${jobId}`),
+  runs: (limit: number = 20) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    return fetchAPI<{ runs: PipelineRunRecord[] }>(`/pipeline/runs?${qs}`);
+  },
+  runDetail: (runId: string) => fetchAPI<PipelineRunRecord>(`/pipeline/runs/${runId}`),
 };
 
 // ── Providers ──
@@ -422,6 +450,8 @@ export interface AgentChatResponse {
   response: string;
   sources_cited: string[];
   model_used: string;
+  confidence: string;
+  session_id?: string;
 }
 
 export interface AgentStatus {
@@ -431,18 +461,57 @@ export interface AgentStatus {
   detail?: string;
 }
 
+export interface ChatSessionSummary {
+  session_id: string;
+  title: string;
+  case_id: string | null;
+  message_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ChatMessageItem {
+  role: "user" | "assistant";
+  content: string;
+  sources_cited: string[] | null;
+  model_used: string | null;
+  confidence: string | null;
+  created_at: string | null;
+}
+
 export const agents = {
   status: () => fetchAPI<AgentStatus>("/agents/status"),
-  investigate: (caseId: string, question?: string) =>
+  investigate: (caseId: string, question?: string, workspaceId?: string | null) =>
     fetchAPI<InvestigateResponse>("/agents/investigate", {
       method: "POST",
-      body: JSON.stringify({ case_id: caseId, question }),
+      body: JSON.stringify({ case_id: caseId, question, workspace_id: workspaceId || undefined }),
     }),
-  chat: (message: string, caseId?: string | null) =>
+  chat: (message: string, caseId?: string | null, sessionId?: string | null, workspaceId?: string | null) =>
     fetchAPI<AgentChatResponse>("/agents/chat", {
       method: "POST",
-      body: JSON.stringify({ message, case_id: caseId || undefined }),
+      body: JSON.stringify({
+        message,
+        case_id: caseId || undefined,
+        session_id: sessionId || undefined,
+        workspace_id: workspaceId || undefined,
+      }),
     }),
+  sessions: (workspaceId?: string | null, limit: number = 20) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    wsParam(qs, workspaceId);
+    return fetchAPI<{ sessions: ChatSessionSummary[] }>(`/agents/sessions?${qs}`);
+  },
+  sessionMessages: (sessionId: string, limit: number = 50) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    return fetchAPI<{ session_id: string; messages: ChatMessageItem[] }>(`/agents/sessions/${sessionId}/messages?${qs}`);
+  },
+  newSession: (workspaceId?: string | null, caseId?: string | null) => {
+    const qs = new URLSearchParams();
+    wsParam(qs, workspaceId);
+    if (caseId) qs.set("case_id", caseId);
+    const q = qs.toString();
+    return fetchAPI<{ session_id: string }>(`/agents/sessions/new${q ? `?${q}` : ""}`, { method: "POST" });
+  },
 };
 
 export const providers = {
