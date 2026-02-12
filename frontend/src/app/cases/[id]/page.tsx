@@ -1,9 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { cases, type CaseDetail } from "@/lib/api";
+import { cases, claims, type CaseDetail, type ClaimDetail } from "@/lib/api";
 import { cn, riskColor, priorityColor, statusColor, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { AlertTriangle, Clock, User, MessageSquare, FileText, ChevronRight } from "lucide-react";
+import { RuleTraceView } from "@/components/rule-trace";
+import { PeerComparisonPanel } from "@/components/peer-comparison";
+import { ConfidenceIndicator, ConfidenceBadge } from "@/components/confidence-indicator";
+import { useWorkspace } from "@/lib/workspace-context";
 
 const STATUS_OPTIONS = ["open", "under_review", "resolved", "closed"] as const;
 const STATUS_LABELS: Record<string, string> = {
@@ -16,10 +20,13 @@ const STATUS_LABELS: Record<string, string> = {
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = params.id as string;
+  const { activeWorkspace } = useWorkspace();
 
   const [caseData, setCaseData] = useState<CaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"rules" | "trace" | "peer">("rules");
+  const [providerNpi, setProviderNpi] = useState<string | null>(null);
 
   // Action states
   const [assignInput, setAssignInput] = useState("");
@@ -38,9 +45,16 @@ export default function CaseDetailPage() {
     setError(null);
     cases
       .detail(caseId)
-      .then((data) => {
+      .then(async (data) => {
         setCaseData(data);
         if (data.assigned_to) setAssignInput(data.assigned_to);
+        // Fetch provider NPI from claim detail for peer comparison
+        if (data.claim_id && data.claim?.provider_id) {
+          try {
+            const claimData = await claims.detail(data.claim_id);
+            if (claimData.provider_npi) setProviderNpi(claimData.provider_npi);
+          } catch { /* ignore — peer comparison just won't be available */ }
+        }
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -300,93 +314,147 @@ export default function CaseDetailPage() {
             </div>
           )}
 
-          {/* Rules Triggered */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-500" />
-              Rules Triggered
-            </h2>
-            {caseData.rule_results.length === 0 ? (
-              <p className="text-gray-500 text-sm">No rules triggered for this case.</p>
-            ) : (
-              <div className="space-y-3">
-                {caseData.rule_results
-                  .filter((r) => r.triggered)
-                  .map((rule) => (
-                    <div
-                      key={rule.rule_id}
-                      className="border border-gray-200 rounded-lg p-4"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="font-mono text-sm font-semibold text-gray-900">
-                              {rule.rule_id}
-                            </span>
-                            {rule.confidence != null && (
-                              <span className="text-xs text-gray-500">
-                                Confidence: {(rule.confidence * 100).toFixed(0)}%
-                              </span>
-                            )}
-                          </div>
-                          {/* Severity bar */}
-                          {rule.severity != null && (
-                            <div className="mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-gray-500 w-16">Severity</span>
-                                <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-xs">
-                                  <div
-                                    className={cn(
-                                      "h-2 rounded-full",
-                                      rule.severity >= 2.5
-                                        ? "bg-red-500"
-                                        : rule.severity >= 1.5
-                                        ? "bg-amber-500"
-                                        : "bg-green-500"
-                                    )}
-                                    style={{
-                                      width: `${Math.min(100, (rule.severity / 3.0) * 100)}%`,
-                                    }}
-                                  />
+          {/* Transparency Tabs */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+            {/* Tab bar */}
+            <div className="flex border-b border-gray-200">
+              {[
+                { key: "rules" as const, label: "Rules Triggered", icon: <AlertTriangle className="w-4 h-4" /> },
+                { key: "trace" as const, label: "Rule Trace", icon: <FileText className="w-4 h-4" /> },
+                ...(providerNpi ? [{ key: "peer" as const, label: "Peer Comparison", icon: <User className="w-4 h-4" /> }] : []),
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={cn(
+                    "flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px",
+                    activeTab === tab.key
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  )}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="p-6">
+              {activeTab === "rules" && (
+                <>
+                  {caseData.rule_results.length === 0 ? (
+                    <p className="text-gray-500 text-sm">No rules triggered for this case.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {caseData.rule_results
+                        .filter((r) => r.triggered)
+                        .map((rule) => (
+                          <div
+                            key={rule.rule_id}
+                            className="border border-gray-200 rounded-lg p-4"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <span className="font-mono text-sm font-semibold text-gray-900">
+                                    {rule.rule_id}
+                                  </span>
+                                  {rule.confidence != null && (
+                                    <ConfidenceBadge confidence={rule.confidence} />
+                                  )}
                                 </div>
-                                <span className="text-xs font-mono text-gray-600 w-8">
-                                  {rule.severity.toFixed(1)}
-                                </span>
+                                {rule.severity != null && (
+                                  <div className="mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-gray-500 w-16">Severity</span>
+                                      <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-xs">
+                                        <div
+                                          className={cn(
+                                            "h-2 rounded-full",
+                                            rule.severity >= 2.5
+                                              ? "bg-red-500"
+                                              : rule.severity >= 1.5
+                                              ? "bg-amber-500"
+                                              : "bg-green-500"
+                                          )}
+                                          style={{
+                                            width: `${Math.min(100, (rule.severity / 3.0) * 100)}%`,
+                                          }}
+                                        />
+                                      </div>
+                                      <span className="text-xs font-mono text-gray-600 w-8">
+                                        {rule.severity.toFixed(1)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                                {rule.details && (
+                                  <p className="text-sm text-gray-600 mb-2">{rule.details}</p>
+                                )}
                               </div>
                             </div>
-                          )}
-                          {rule.details && (
-                            <p className="text-sm text-gray-600 mb-2">{rule.details}</p>
-                          )}
-                        </div>
-                      </div>
-                      {/* Collapsible evidence */}
-                      {rule.evidence && Object.keys(rule.evidence).length > 0 && (
-                        <div>
-                          <button
-                            onClick={() => toggleRuleEvidence(rule.rule_id)}
-                            className="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-1"
-                          >
-                            <ChevronRight
-                              className={cn(
-                                "w-3 h-3 transition-transform",
-                                expandedRules.has(rule.rule_id) && "rotate-90"
-                              )}
-                            />
-                            {expandedRules.has(rule.rule_id) ? "Hide" : "Show"} Evidence
-                          </button>
-                          {expandedRules.has(rule.rule_id) && (
-                            <pre className="mt-2 bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto max-h-60">
-                              {JSON.stringify(rule.evidence, null, 2)}
-                            </pre>
-                          )}
-                        </div>
-                      )}
+                            {rule.evidence && Object.keys(rule.evidence).length > 0 && (
+                              <div>
+                                <button
+                                  onClick={() => toggleRuleEvidence(rule.rule_id)}
+                                  className="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-1"
+                                >
+                                  <ChevronRight
+                                    className={cn(
+                                      "w-3 h-3 transition-transform",
+                                      expandedRules.has(rule.rule_id) && "rotate-90"
+                                    )}
+                                  />
+                                  {expandedRules.has(rule.rule_id) ? "Hide" : "Show"} Evidence
+                                </button>
+                                {expandedRules.has(rule.rule_id) && (
+                                  <pre className="mt-2 bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto max-h-60">
+                                    {JSON.stringify(rule.evidence, null, 2)}
+                                  </pre>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === "trace" && (
+                <RuleTraceView claimId={caseData.claim_id} />
+              )}
+
+              {activeTab === "peer" && providerNpi && (
+                <PeerComparisonPanel
+                  npi={providerNpi}
+                  workspaceId={activeWorkspace}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Overall Confidence */}
+          {caseData.rule_results.filter(r => r.triggered && r.confidence != null).length > 0 && (
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+              <h2 className="text-lg font-semibold mb-4">Detection Confidence</h2>
+              <div className="flex items-center gap-8 flex-wrap">
+                {caseData.rule_results
+                  .filter(r => r.triggered && r.confidence != null)
+                  .slice(0, 5)
+                  .map((rule) => (
+                    <div key={rule.rule_id} className="flex flex-col items-center">
+                      <ConfidenceIndicator
+                        confidence={rule.confidence!}
+                        label={rule.rule_id}
+                        size="sm"
+                      />
                     </div>
                   ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* ===== RIGHT COLUMN (2/5) ===== */}

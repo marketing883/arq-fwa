@@ -24,6 +24,7 @@ class InvestigationCase(Base):
     resolution_notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     estimated_fraud_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     recovery_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
     sla_deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

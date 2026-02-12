@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import String, Boolean, DateTime, Integer, Numeric, func
+from sqlalchemy import String, Boolean, DateTime, Integer, Numeric, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,5 +41,6 @@ class RuleResult(Base):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 2), nullable=True)
     evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
     details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     batch_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)

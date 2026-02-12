@@ -17,6 +17,11 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/** Append workspace_id to query string if provided */
+function wsParam(qs: URLSearchParams, workspaceId?: string | null) {
+  if (workspaceId) qs.set("workspace_id", workspaceId);
+}
+
 // ── Dashboard ──
 
 export interface RiskDistribution {
@@ -62,13 +67,28 @@ export interface RuleEffectivenessItem {
 }
 
 export const dashboard = {
-  overview: () => fetchAPI<DashboardOverview>("/dashboard/overview"),
-  trends: (period: string = "30d") =>
-    fetchAPI<{ period: string; data: TrendDataPoint[] }>(`/dashboard/trends?period=${period}`),
-  topProviders: (limit: number = 10) =>
-    fetchAPI<{ providers: TopProviderItem[] }>(`/dashboard/top-providers?limit=${limit}`),
-  ruleEffectiveness: () =>
-    fetchAPI<{ rules: RuleEffectivenessItem[] }>("/dashboard/rule-effectiveness"),
+  overview: (workspaceId?: string | null) => {
+    const qs = new URLSearchParams();
+    wsParam(qs, workspaceId);
+    const q = qs.toString();
+    return fetchAPI<DashboardOverview>(`/dashboard/overview${q ? `?${q}` : ""}`);
+  },
+  trends: (period: string = "30d", workspaceId?: string | null) => {
+    const qs = new URLSearchParams({ period });
+    wsParam(qs, workspaceId);
+    return fetchAPI<{ period: string; data: TrendDataPoint[] }>(`/dashboard/trends?${qs}`);
+  },
+  topProviders: (limit: number = 10, workspaceId?: string | null) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    wsParam(qs, workspaceId);
+    return fetchAPI<{ providers: TopProviderItem[] }>(`/dashboard/top-providers?${qs}`);
+  },
+  ruleEffectiveness: (workspaceId?: string | null) => {
+    const qs = new URLSearchParams();
+    wsParam(qs, workspaceId);
+    const q = qs.toString();
+    return fetchAPI<{ rules: RuleEffectivenessItem[] }>(`/dashboard/rule-effectiveness${q ? `?${q}` : ""}`);
+  },
 };
 
 // ── Claims ──
@@ -142,17 +162,48 @@ export interface PaginatedClaims {
   items: ClaimSummary[];
 }
 
+// ── Rule Trace ──
+
+export interface RuleTraceStep {
+  step: number;
+  rule_id: string;
+  rule_name: string;
+  category: string;
+  fraud_type: string;
+  triggered: boolean;
+  severity: number | null;
+  confidence: number | null;
+  weight: number | null;
+  contribution: number | null;
+  explanation: string;
+  evidence: Record<string, unknown>;
+}
+
+export interface RuleTrace {
+  claim_id: string;
+  total_score: number;
+  risk_level: string;
+  steps: RuleTraceStep[];
+  score_calculation: {
+    formula: string;
+    rules_triggered: number;
+    rules_passed: number;
+  };
+}
+
 export const claims = {
-  list: (params: { type?: string; risk_level?: string; status?: string; page?: number; size?: number }) => {
+  list: (params: { type?: string; risk_level?: string; status?: string; page?: number; size?: number; workspace_id?: string | null }) => {
     const qs = new URLSearchParams();
     if (params.type) qs.set("type", params.type);
     if (params.risk_level) qs.set("risk_level", params.risk_level);
     if (params.status) qs.set("status", params.status);
     qs.set("page", String(params.page || 1));
     qs.set("size", String(params.size || 50));
+    wsParam(qs, params.workspace_id);
     return fetchAPI<PaginatedClaims>(`/claims?${qs}`);
   },
   detail: (claimId: string) => fetchAPI<ClaimDetail>(`/claims/${claimId}`),
+  ruleTrace: (claimId: string) => fetchAPI<RuleTrace>(`/claims/${claimId}/rule-trace`),
   processBatch: (body: { limit?: number; claim_type?: string; batch_id?: string }) =>
     fetchAPI<{ batch_id: string; claims_processed: number; rules_evaluated: number; scores_generated: number; cases_created: number; processing_time_seconds: number }>(
       "/claims/process-batch",
@@ -234,12 +285,13 @@ export interface PaginatedCases {
 }
 
 export const cases = {
-  list: (params: { status?: string; priority?: string; page?: number; size?: number }) => {
+  list: (params: { status?: string; priority?: string; page?: number; size?: number; workspace_id?: string | null }) => {
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", params.status);
     if (params.priority) qs.set("priority", params.priority);
     qs.set("page", String(params.page || 1));
     qs.set("size", String(params.size || 20));
+    wsParam(qs, params.workspace_id);
     return fetchAPI<PaginatedCases>(`/cases?${qs}`);
   },
   detail: (caseId: string) => fetchAPI<CaseDetail>(`/cases/${caseId}`),
@@ -291,4 +343,80 @@ export const audit = {
 
 export const scoring = {
   thresholds: () => fetchAPI<{ low_max: number; medium_max: number; high_max: number }>("/scoring/thresholds"),
+};
+
+// ── Workspaces ──
+
+export interface WorkspaceSummary {
+  workspace_id: string;
+  name: string;
+  client_name: string | null;
+  description: string | null;
+  data_source: string;
+  status: string;
+  claim_count: number;
+  created_at: string | null;
+}
+
+export const workspaces = {
+  list: () => fetchAPI<{ workspaces: WorkspaceSummary[]; total: number }>("/workspaces"),
+  create: (body: { name: string; client_name?: string; description?: string }) =>
+    fetchAPI<WorkspaceSummary>("/workspaces", { method: "POST", body: JSON.stringify(body) }),
+  detail: (id: string) => fetchAPI<WorkspaceSummary>(`/workspaces/${id}`),
+  archive: (id: string) => fetch(`${API_BASE}/workspaces/${id}`, { method: "DELETE" }),
+};
+
+// ── Pipeline ──
+
+export interface PipelineRunResponse {
+  batch_id: string;
+  total_claims: number;
+  medical_claims: number;
+  pharmacy_claims: number;
+  rules_evaluated: number;
+  scores_generated: number;
+  cases_created: number;
+  high_risk: number;
+  critical_risk: number;
+  processing_time_seconds: number;
+}
+
+export const pipeline = {
+  runFull: (body: { limit?: number; workspace_id?: string | null }) =>
+    fetchAPI<PipelineRunResponse>("/pipeline/run-full", { method: "POST", body: JSON.stringify(body) }),
+  status: () => fetchAPI<Record<string, number>>("/pipeline/status"),
+  /** Returns an EventSource for streaming pipeline progress */
+  runStream: (body: { limit?: number; workspace_id?: string | null }): EventSource => {
+    // SSE via POST requires a fetch-based approach; we'll POST and consume the stream
+    // For simplicity, use the non-streaming endpoint from the UI and show progress via polling
+    // The actual SSE endpoint is available at /api/pipeline/run-stream
+    throw new Error("Use runStreamFetch instead");
+  },
+};
+
+// ── Providers ──
+
+export interface PeerMetric {
+  metric: string;
+  provider_value: number;
+  peer_average: number;
+  peer_p75: number;
+  peer_p90: number;
+  percentile: number;
+  anomaly: boolean;
+}
+
+export interface PeerComparison {
+  provider: { npi: string; name: string; specialty: string };
+  peer_group: string;
+  metrics: PeerMetric[];
+}
+
+export const providers = {
+  peerComparison: (npi: string, workspaceId?: string | null) => {
+    const qs = new URLSearchParams();
+    wsParam(qs, workspaceId);
+    const q = qs.toString();
+    return fetchAPI<PeerComparison>(`/providers/${npi}/peer-comparison${q ? `?${q}` : ""}`);
+  },
 };

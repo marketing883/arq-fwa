@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, DateTime, func
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -24,6 +24,7 @@ class Provider(Base):
     oig_excluded: Mapped[bool] = mapped_column(Boolean, default=False)
     dea_registration: Mapped[str | None] = mapped_column(String(20))
     dea_schedule: Mapped[str | None] = mapped_column(String(10))
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -43,5 +44,6 @@ class Pharmacy(Base):
     pharmacy_type: Mapped[str] = mapped_column(String(20))  # "retail" | "mail_order" | "specialty" | "compounding"
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     oig_excluded: Mapped[bool] = mapped_column(Boolean, default=False)
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

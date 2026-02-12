@@ -20,6 +20,7 @@ from app.models import (
     RiskScore,
     RuleResult,
     InvestigationCase,
+    Workspace,
 )
 from app.services.enrichment import EnrichmentService
 from app.services.rule_engine import RuleEngine
@@ -47,11 +48,20 @@ async def list_claims(
     type: str | None = Query(None, pattern="^(medical|pharmacy)$"),
     status: str | None = Query(None),
     risk_level: str | None = Query(None, pattern="^(low|medium|high|critical)$"),
+    workspace_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> ClaimListResponse:
     """Return a paginated, filterable list of claims with risk information."""
+
+    # Resolve optional workspace_id to internal integer id
+    ws_id = None
+    if workspace_id:
+        ws_result = await db.execute(select(Workspace).where(Workspace.workspace_id == workspace_id))
+        ws = ws_result.scalar_one_or_none()
+        if ws:
+            ws_id = ws.id
 
     offset = (page - 1) * size
     items: list[ClaimSummary] = []
@@ -82,6 +92,8 @@ async def list_claims(
             .outerjoin(RiskScore, RiskScore.claim_id == MedicalClaim.claim_id)
         )
 
+        if ws_id is not None:
+            med_query = med_query.where(MedicalClaim.workspace_id == ws_id)
         if status:
             med_query = med_query.where(MedicalClaim.status == status)
         if risk_level:
@@ -115,6 +127,8 @@ async def list_claims(
             .outerjoin(RiskScore, RiskScore.claim_id == PharmacyClaim.claim_id)
         )
 
+        if ws_id is not None:
+            rx_query = rx_query.where(PharmacyClaim.workspace_id == ws_id)
         if status:
             rx_query = rx_query.where(PharmacyClaim.status == status)
         if risk_level:
@@ -379,6 +393,34 @@ async def get_claim_detail(
             risk_score=risk_score_detail,
             created_at=rx_claim.created_at,
         )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/claims/{claim_id}/rule-trace — step-by-step rule evaluation trace
+# ---------------------------------------------------------------------------
+
+@router.get("/{claim_id}/rule-trace")
+async def get_rule_trace(claim_id: str, db: AsyncSession = Depends(get_db)):
+    """Return step-by-step rule evaluation trace with human-readable explanations."""
+    from app.services.rule_trace import RuleTraceService
+    service = RuleTraceService(db)
+    result = await service.get_trace(claim_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"No rule results found for claim {claim_id}")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# GET /api/claims/{claim_id}/confidence — pattern confidence scores
+# ---------------------------------------------------------------------------
+
+@router.get("/{claim_id}/confidence")
+async def get_pattern_confidence(claim_id: str, db: AsyncSession = Depends(get_db)):
+    """Return pattern confidence scores based on historical case outcomes."""
+    from app.services.pattern_confidence import PatternConfidenceService
+    service = PatternConfidenceService(db)
+    result = await service.compute_for_claim(claim_id)
+    return result
 
 
 # ---------------------------------------------------------------------------

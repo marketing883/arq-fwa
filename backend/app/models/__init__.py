@@ -1,3 +1,4 @@
+from app.models.workspace import Workspace  # noqa: F401
 from app.models.provider import Provider, Pharmacy  # noqa: F401
 from app.models.member import Member  # noqa: F401
 from app.models.claim import MedicalClaim, PharmacyClaim  # noqa: F401

@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import String, DateTime, Integer, Numeric, func
+from sqlalchemy import String, DateTime, Integer, Numeric, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,5 +19,6 @@ class RiskScore(Base):
     rules_triggered: Mapped[int] = mapped_column(Integer, default=0)
     rule_contributions: Mapped[dict] = mapped_column(JSONB, default=dict)
     confidence_factor: Mapped[Decimal] = mapped_column(Numeric(4, 2))
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
     scored_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     batch_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)

@@ -21,6 +21,7 @@ from app.models import (
     PharmacyClaim,
     RiskScore,
     RuleResult,
+    Workspace,
 )
 from app.services.audit_service import AuditService
 from app.schemas.schemas import (
@@ -125,6 +126,7 @@ async def list_cases(
     status: str | None = Query(None, pattern="^(open|under_review|escalated|resolved|closed)$"),
     priority: str | None = Query(None, pattern="^(P1|P2|P3|P4)$"),
     assigned_to: str | None = Query(None),
+    workspace_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -133,8 +135,18 @@ async def list_cases(
     Paginated investigation queue with optional filters.
     Sorted by priority (P1 first), then by creation date descending.
     """
+    # Resolve optional workspace_id to internal integer id
+    ws_id = None
+    if workspace_id:
+        ws_result = await db.execute(select(Workspace).where(Workspace.workspace_id == workspace_id))
+        ws = ws_result.scalar_one_or_none()
+        if ws:
+            ws_id = ws.id
+
     # Base filter conditions
     conditions = []
+    if ws_id is not None:
+        conditions.append(InvestigationCase.workspace_id == ws_id)
     if status is not None:
         conditions.append(InvestigationCase.status == status)
     if priority is not None:

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { cases, type CaseSummary, type PaginatedCases } from "@/lib/api";
 import { cn, riskColor, priorityColor, statusColor, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { useWorkspace } from "@/lib/workspace-context";
 
 const STATUS_OPTIONS = ["All", "open", "under_review", "resolved", "closed"] as const;
 const PRIORITY_OPTIONS = ["All", "P1", "P2"] as const;
@@ -21,6 +22,7 @@ function isPastDeadline(slaDeadline: string | null): boolean {
 }
 
 export default function InvestigationQueuePage() {
+  const { activeWorkspace } = useWorkspace();
   const [data, setData] = useState<PaginatedCases | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,11 +40,12 @@ export default function InvestigationQueuePage() {
         priority: priorityFilter === "All" ? undefined : priorityFilter,
         page,
         size: 20,
+        workspace_id: activeWorkspace,
       })
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [statusFilter, priorityFilter, page]);
+  }, [statusFilter, priorityFilter, page, activeWorkspace]);
 
   // Reset page when filters change
   useEffect(() => {

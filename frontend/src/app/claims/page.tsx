@@ -16,6 +16,8 @@ import {
   formatDate,
 } from "@/lib/utils";
 import { X } from "lucide-react";
+import { useWorkspace } from "@/lib/workspace-context";
+import { ConfidenceBadge } from "@/components/confidence-indicator";
 
 type ClaimTypeFilter = "" | "medical" | "pharmacy";
 type RiskLevelFilter = "" | "low" | "medium" | "high" | "critical";
@@ -77,6 +79,7 @@ function FilterButton({
 }
 
 export default function ClaimsPage() {
+  const { activeWorkspace } = useWorkspace();
   // Filter state
   const [typeFilter, setTypeFilter] = useState<ClaimTypeFilter>("");
   const [riskFilter, setRiskFilter] = useState<RiskLevelFilter>("");
@@ -106,6 +109,7 @@ export default function ClaimsPage() {
           risk_level: riskFilter || undefined,
           page,
           size: pageSize,
+          workspace_id: activeWorkspace,
         });
         if (!cancelled) {
           setData(result);
@@ -120,7 +124,7 @@ export default function ClaimsPage() {
     return () => {
       cancelled = true;
     };
-  }, [typeFilter, riskFilter, page, pageSize]);
+  }, [typeFilter, riskFilter, page, pageSize, activeWorkspace]);
 
   // Fetch claim detail when selected
   useEffect(() => {
@@ -631,10 +635,9 @@ export default function ClaimsPage() {
                                   </p>
                                 )}
                                 {rule.confidence != null && (
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    Confidence:{" "}
-                                    {(rule.confidence * 100).toFixed(0)}%
-                                  </p>
+                                  <div className="mt-1">
+                                    <ConfidenceBadge confidence={rule.confidence} />
+                                  </div>
                                 )}
                               </div>
                             );

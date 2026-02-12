@@ -38,6 +38,7 @@ import {
   Briefcase,
 } from "lucide-react";
 import Link from "next/link";
+import { useWorkspace } from "@/lib/workspace-context";
 
 const COLORS = ["#22c55e", "#f59e0b", "#ef4444", "#7f1d1d"];
 
@@ -109,6 +110,7 @@ function renderCustomLabel(props: any) {
 }
 
 export default function DashboardPage() {
+  const { activeWorkspace } = useWorkspace();
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [providers, setProviders] = useState<TopProviderItem[] | null>(null);
   const [ruleEffectiveness, setRuleEffectiveness] = useState<
@@ -117,24 +119,29 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     async function load() {
+      setLoading(true);
       try {
         const [overviewData, providerData, ruleData] = await Promise.all([
-          dashboard.overview(),
-          dashboard.topProviders(10),
-          dashboard.ruleEffectiveness(),
+          dashboard.overview(activeWorkspace),
+          dashboard.topProviders(10, activeWorkspace),
+          dashboard.ruleEffectiveness(activeWorkspace),
         ]);
-        setOverview(overviewData);
-        setProviders(providerData.providers);
-        setRuleEffectiveness(ruleData.rules);
+        if (!cancelled) {
+          setOverview(overviewData);
+          setProviders(providerData.providers);
+          setRuleEffectiveness(ruleData.rules);
+        }
       } catch (err) {
         console.error("Failed to load dashboard data:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, []);
+    return () => { cancelled = true; };
+  }, [activeWorkspace]);
 
   const riskDistData = overview
     ? [
@@ -345,7 +352,7 @@ export default function DashboardPage() {
                       {p.name}
                     </td>
                     <td className="px-6 py-3 text-gray-600">
-                      {p.specialty || "—"}
+                      {p.specialty || "\u2014"}
                     </td>
                     <td className="px-6 py-3 text-right">
                       <span

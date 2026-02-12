@@ -5,10 +5,12 @@ POST /api/pipeline/run-full
   Runs the complete pipeline: load → enrich → evaluate → score → create cases → audit
 """
 
+import json
 import time
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +21,7 @@ from app.models import (
     RiskScore,
     RuleResult,
     InvestigationCase,
+    Workspace,
 )
 from app.services.enrichment import EnrichmentService
 from app.services.rule_engine import RuleEngine
@@ -31,6 +34,7 @@ from pydantic import BaseModel, Field
 class PipelineRunRequest(BaseModel):
     limit: int = Field(1000, ge=1, le=50000, description="Max claims per type to process")
     batch_id: str | None = Field(None, description="Process specific batch only")
+    workspace_id: str | None = Field(None, description="Filter claims by workspace")
 
 
 class PipelineRunResponse(BaseModel):
@@ -80,6 +84,14 @@ async def run_full_pipeline(
     t_start = time.time()
     batch_id = body.batch_id or f"PIPE-{uuid4().hex[:12].upper()}"
 
+    # Resolve optional workspace_id to internal integer id
+    ws_id = None
+    if body.workspace_id:
+        ws_result = await db.execute(select(Workspace).where(Workspace.workspace_id == body.workspace_id))
+        ws = ws_result.scalar_one_or_none()
+        if ws:
+            ws_id = ws.id
+
     # ── 1. Load unscored claims ──────────────────────────────────────────
     scored_med_ids = select(RiskScore.claim_id).where(RiskScore.claim_type == "medical")
     scored_rx_ids = select(RiskScore.claim_id).where(RiskScore.claim_type == "pharmacy")
@@ -87,15 +99,18 @@ async def run_full_pipeline(
     med_q = (
         select(MedicalClaim)
         .where(MedicalClaim.claim_id.not_in(scored_med_ids))
-        .order_by(MedicalClaim.created_at.asc())
-        .limit(body.limit)
     )
+    if ws_id is not None:
+        med_q = med_q.where(MedicalClaim.workspace_id == ws_id)
+    med_q = med_q.order_by(MedicalClaim.created_at.asc()).limit(body.limit)
+
     rx_q = (
         select(PharmacyClaim)
         .where(PharmacyClaim.claim_id.not_in(scored_rx_ids))
-        .order_by(PharmacyClaim.created_at.asc())
-        .limit(body.limit)
     )
+    if ws_id is not None:
+        rx_q = rx_q.where(PharmacyClaim.workspace_id == ws_id)
+    rx_q = rx_q.order_by(PharmacyClaim.created_at.asc()).limit(body.limit)
 
     med_result = await db.execute(med_q)
     rx_result = await db.execute(rx_q)
@@ -251,3 +266,131 @@ async def pipeline_status(db: AsyncSession = Depends(get_db)):
         total_rule_results=total_rr,
         total_audit_entries=total_audit,
     )
+
+
+@router.post("/run-stream")
+async def run_pipeline_stream(
+    body: PipelineRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Run the full pipeline with SSE progress streaming.
+    Returns text/event-stream with progress updates.
+    """
+
+    async def generate():
+        t_start = time.time()
+        batch_id = body.batch_id or f"PIPE-{uuid4().hex[:12].upper()}"
+
+        def send_event(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+        # Phase 1: Load claims
+        yield send_event("phase", {"phase": "loading", "label": "Loading claims", "progress": 0})
+
+        scored_med_ids = select(RiskScore.claim_id).where(RiskScore.claim_type == "medical")
+        scored_rx_ids = select(RiskScore.claim_id).where(RiskScore.claim_type == "pharmacy")
+
+        med_q = (
+            select(MedicalClaim)
+            .where(MedicalClaim.claim_id.not_in(scored_med_ids))
+            .order_by(MedicalClaim.created_at.asc())
+            .limit(body.limit)
+        )
+        rx_q = (
+            select(PharmacyClaim)
+            .where(PharmacyClaim.claim_id.not_in(scored_rx_ids))
+            .order_by(PharmacyClaim.created_at.asc())
+            .limit(body.limit)
+        )
+
+        med_claims = list((await db.execute(med_q)).scalars())
+        rx_claims = list((await db.execute(rx_q)).scalars())
+        total_claims = len(med_claims) + len(rx_claims)
+
+        yield send_event("progress", {
+            "phase": "loading", "current": total_claims, "total": total_claims, "progress": 100,
+            "detail": f"Found {len(med_claims)} medical + {len(rx_claims)} pharmacy claims"
+        })
+
+        if total_claims == 0:
+            yield send_event("complete", {"total_claims": 0, "rules_evaluated": 0, "cases_created": 0, "elapsed_seconds": round(time.time() - t_start, 1)})
+            return
+
+        # Phase 2: Enrich
+        yield send_event("phase", {"phase": "enrichment", "label": "Enriching claims with reference data", "progress": 0})
+        enrichment = EnrichmentService(db)
+        enriched_medical = await enrichment.enrich_medical_batch(med_claims) if med_claims else []
+        yield send_event("progress", {"phase": "enrichment", "current": len(med_claims), "total": total_claims, "progress": 50, "detail": f"Enriched {len(med_claims)} medical claims"})
+        enriched_pharmacy = await enrichment.enrich_pharmacy_batch(rx_claims) if rx_claims else []
+        yield send_event("progress", {"phase": "enrichment", "current": total_claims, "total": total_claims, "progress": 100, "detail": f"Enriched all {total_claims} claims"})
+
+        # Phase 3: Rule evaluation
+        yield send_event("phase", {"phase": "rules", "label": "Evaluating 29 fraud detection rules", "progress": 0})
+        rule_engine = RuleEngine(db)
+        await rule_engine.load_rules()
+        await rule_engine.load_configs()
+
+        med_results = await rule_engine.evaluate_batch(enriched_medical, batch_id) if enriched_medical else {}
+        med_triggered = sum(1 for results in med_results.values() for r in results if r.triggered)
+        yield send_event("progress", {"phase": "rules", "current": len(med_claims), "total": total_claims, "progress": 50, "detail": f"Medical: {med_triggered} rules triggered across {len(med_claims)} claims"})
+
+        rx_results = await rule_engine.evaluate_batch(enriched_pharmacy, batch_id) if enriched_pharmacy else {}
+        rx_triggered = sum(1 for results in rx_results.values() for r in results if r.triggered)
+        total_triggered = med_triggered + rx_triggered
+        yield send_event("progress", {"phase": "rules", "current": total_claims, "total": total_claims, "progress": 100, "detail": f"Total: {total_triggered} rules triggered"})
+
+        rules_saved = await rule_engine.save_results(med_results) + await rule_engine.save_results(rx_results)
+
+        # Phase 4: Scoring
+        yield send_event("phase", {"phase": "scoring", "label": "Calculating risk scores", "progress": 0})
+        scoring = ScoringEngine(db)
+        med_scores = await scoring.score_batch(med_results, "medical", batch_id) if med_results else []
+        rx_scores = await scoring.score_batch(rx_results, "pharmacy", batch_id) if rx_results else []
+        all_scores = med_scores + rx_scores
+        scores_saved = await scoring.save_scores(all_scores)
+
+        high_count = sum(1 for s in all_scores if s.risk_level == "high")
+        critical_count = sum(1 for s in all_scores if s.risk_level == "critical")
+        yield send_event("progress", {"phase": "scoring", "current": len(all_scores), "total": len(all_scores), "progress": 100, "detail": f"High: {high_count}, Critical: {critical_count}"})
+
+        # Update claim statuses
+        for claim in med_claims:
+            claim.status = "processed"
+            claim.batch_id = batch_id
+        for claim in rx_claims:
+            claim.status = "processed"
+            claim.batch_id = batch_id
+        await db.flush()
+
+        # Phase 5: Case creation
+        yield send_event("phase", {"phase": "cases", "label": "Creating investigation cases", "progress": 0})
+        case_manager = CaseManager(db)
+        new_cases = await case_manager.create_cases_from_scores(all_scores, generate_evidence=True)
+        yield send_event("progress", {"phase": "cases", "current": len(new_cases), "total": len(new_cases), "progress": 100, "detail": f"Created {len(new_cases)} investigation cases"})
+
+        # Audit
+        audit = AuditService(db)
+        await audit.log_event(
+            event_type="pipeline_run",
+            actor="system",
+            action=f"Streamed pipeline {batch_id}: {total_claims} claims",
+            resource_type="batch",
+            resource_id=batch_id,
+            details={"batch_id": batch_id, "total_claims": total_claims, "rules_evaluated": rules_saved, "cases_created": len(new_cases)},
+        )
+
+        yield send_event("complete", {
+            "batch_id": batch_id,
+            "total_claims": total_claims,
+            "medical_claims": len(med_claims),
+            "pharmacy_claims": len(rx_claims),
+            "rules_evaluated": rules_saved,
+            "scores_generated": scores_saved,
+            "cases_created": len(new_cases),
+            "high_risk": high_count,
+            "critical_risk": critical_count,
+            "elapsed_seconds": round(time.time() - t_start, 1),
+        })
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

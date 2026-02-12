@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import String, Date, Boolean, DateTime, func
+from sqlalchemy import String, Date, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -24,5 +24,6 @@ class Member(Base):
     eligibility_start: Mapped[date] = mapped_column(Date)
     eligibility_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

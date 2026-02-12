@@ -13,6 +13,8 @@ from app.api.scoring import router as scoring_router
 from app.api.audit import router as audit_router
 from app.api.agents import router as agents_router
 from app.api.pipeline import router as pipeline_router
+from app.api.workspaces import router as workspaces_router
+from app.api.providers import router as providers_router
 
 
 @asynccontextmanager
@@ -49,6 +51,8 @@ app.include_router(scoring_router)
 app.include_router(audit_router)
 app.include_router(agents_router)
 app.include_router(pipeline_router)
+app.include_router(workspaces_router)
+app.include_router(providers_router)
 
 
 @app.get("/api/health")
