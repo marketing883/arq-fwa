@@ -159,45 +159,74 @@ export default function GovernancePage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load tab-specific data
+  // Load ALL subtab data for a tab in parallel when the tab is selected
   useEffect(() => {
     let cancelled = false;
     async function loadTabData() {
       try {
         if (activeTab === "tao") {
-          if (taoSubTab === "trust" && !trustProfiles) {
-            const data = await governance.trustProfiles();
-            if (!cancelled) setTrustProfiles(data.profiles);
-          } else if (taoSubTab === "hitl" && !hitlRequests) {
-            const data = await governance.hitlRequests();
-            if (!cancelled) setHitlRequests(data.requests);
-          } else if (taoSubTab === "lineage" && !lineageNodes) {
-            const data = await governance.lineage();
-            if (!cancelled) setLineageNodes(data.nodes);
-          } else if (taoSubTab === "receipts" && !auditReceipts) {
-            const data = await governance.auditReceipts();
-            if (!cancelled) setAuditReceipts(data.receipts);
+          const promises: Promise<void>[] = [];
+          if (!trustProfiles) {
+            promises.push(
+              governance.trustProfiles().then((data) => {
+                if (!cancelled) setTrustProfiles(data.profiles);
+              })
+            );
           }
+          if (!hitlRequests) {
+            promises.push(
+              governance.hitlRequests().then((data) => {
+                if (!cancelled) setHitlRequests(data.requests);
+              })
+            );
+          }
+          if (!lineageNodes) {
+            promises.push(
+              governance.lineage().then((data) => {
+                if (!cancelled) setLineageNodes(data.nodes);
+              })
+            );
+          }
+          if (!auditReceipts) {
+            promises.push(
+              governance.auditReceipts().then((data) => {
+                if (!cancelled) setAuditReceipts(data.receipts);
+              })
+            );
+          }
+          await Promise.all(promises);
         } else if (activeTab === "capc" && !evidencePackets) {
           const data = await governance.evidencePackets();
           if (!cancelled) setEvidencePackets(data.packets);
         } else if (activeTab === "oda-rag") {
-          if (odaSubTab === "signals" && !signalSummary) {
-            const [sigData, summData] = await Promise.all([
-              governance.signals(),
-              governance.signalSummary(),
-            ]);
-            if (!cancelled) {
-              setSignals(sigData.signals);
-              setSignalSummary(summData.summary);
-            }
-          } else if (odaSubTab === "adaptations" && !adaptations) {
-            const data = await governance.adaptations();
-            if (!cancelled) setAdaptations(data.adaptations);
-          } else if (odaSubTab === "feedback" && !feedback) {
-            const data = await governance.feedback();
-            if (!cancelled) setFeedback(data.feedback);
+          const promises: Promise<void>[] = [];
+          if (!signalSummary) {
+            promises.push(
+              Promise.all([governance.signals(), governance.signalSummary()]).then(
+                ([sigData, summData]) => {
+                  if (!cancelled) {
+                    setSignals(sigData.signals);
+                    setSignalSummary(summData.summary);
+                  }
+                }
+              )
+            );
           }
+          if (!adaptations) {
+            promises.push(
+              governance.adaptations().then((data) => {
+                if (!cancelled) setAdaptations(data.adaptations);
+              })
+            );
+          }
+          if (!feedback) {
+            promises.push(
+              governance.feedback().then((data) => {
+                if (!cancelled) setFeedback(data.feedback);
+              })
+            );
+          }
+          await Promise.all(promises);
         }
       } catch (err) {
         console.error("Failed to load tab data:", err);
@@ -205,7 +234,7 @@ export default function GovernancePage() {
     }
     loadTabData();
     return () => { cancelled = true; };
-  }, [activeTab, taoSubTab, odaSubTab, trustProfiles, hitlRequests, lineageNodes, auditReceipts, evidencePackets, signalSummary, adaptations, feedback]);
+  }, [activeTab, trustProfiles, hitlRequests, lineageNodes, auditReceipts, evidencePackets, signalSummary, adaptations, feedback]);
 
   async function handleRefresh() {
     setRefreshing(true);

@@ -40,95 +40,54 @@ async def governance_health(
     ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get overall methodology health summary."""
+    """Get overall methodology health summary (single query)."""
     now = datetime.utcnow()
     last_24h = now - timedelta(hours=24)
 
-    # TAO stats
-    lineage_count = (await db.execute(
-        select(func.count()).select_from(LineageNode)
-    )).scalar() or 0
-    lineage_24h = (await db.execute(
-        select(func.count()).select_from(LineageNode)
-        .where(LineageNode.created_at >= last_24h)
-    )).scalar() or 0
+    row = (await db.execute(text("""
+        SELECT
+            (SELECT count(*) FROM lineage_node)                                       AS lineage_count,
+            (SELECT count(*) FROM lineage_node WHERE created_at >= :cutoff)           AS lineage_24h,
+            (SELECT count(*) FROM agent_trust_profile)                                AS trust_profiles,
+            (SELECT avg(trust_score) FROM agent_trust_profile)                        AS avg_trust,
+            (SELECT count(*) FROM capability_token)                                   AS tokens_issued,
+            (SELECT count(*) FROM capability_token WHERE issued_at >= :cutoff)        AS tokens_24h,
+            (SELECT count(*) FROM hitl_request WHERE status = 'pending')              AS hitl_pending,
+            (SELECT count(*) FROM hitl_request)                                       AS hitl_total,
+            (SELECT count(*) FROM audit_receipt)                                      AS receipts_total,
+            (SELECT count(*) FROM evidence_packet)                                    AS evidence_total,
+            (SELECT count(*) FROM evidence_packet WHERE created_at >= :cutoff)        AS evidence_24h,
+            (SELECT count(*) FROM evidence_packet WHERE exception_action IS NOT NULL) AS violations,
+            (SELECT count(*) FROM rag_signal)                                         AS signals_total,
+            (SELECT count(*) FROM rag_signal WHERE created_at >= :cutoff)             AS signals_24h,
+            (SELECT count(*) FROM adaptation_event)                                   AS adaptations_total,
+            (SELECT avg(response_quality) FROM rag_feedback)                          AS avg_feedback
+    """), {"cutoff": last_24h})).one()
 
-    trust_profiles = (await db.execute(
-        select(func.count()).select_from(AgentTrustProfile)
-    )).scalar() or 0
-    avg_trust = (await db.execute(
-        select(func.avg(AgentTrustProfile.trust_score))
-    )).scalar()
-
-    tokens_issued = (await db.execute(
-        select(func.count()).select_from(CapabilityToken)
-    )).scalar() or 0
-    tokens_24h = (await db.execute(
-        select(func.count()).select_from(CapabilityToken)
-        .where(CapabilityToken.issued_at >= last_24h)
-    )).scalar() or 0
-
-    hitl_pending = (await db.execute(
-        select(func.count()).select_from(HITLRequest)
-        .where(HITLRequest.status == "pending")
-    )).scalar() or 0
-    hitl_total = (await db.execute(
-        select(func.count()).select_from(HITLRequest)
-    )).scalar() or 0
-
-    receipts_total = (await db.execute(
-        select(func.count()).select_from(AuditReceipt)
-    )).scalar() or 0
-
-    # CAPC stats
-    evidence_total = (await db.execute(
-        select(func.count()).select_from(EvidencePacket)
-    )).scalar() or 0
-    evidence_24h = (await db.execute(
-        select(func.count()).select_from(EvidencePacket)
-        .where(EvidencePacket.created_at >= last_24h)
-    )).scalar() or 0
-    violations = (await db.execute(
-        select(func.count()).select_from(EvidencePacket)
-        .where(EvidencePacket.exception_action.isnot(None))
-    )).scalar() or 0
-
-    # ODA-RAG stats
-    signals_total = (await db.execute(
-        select(func.count()).select_from(RAGSignal)
-    )).scalar() or 0
-    signals_24h = (await db.execute(
-        select(func.count()).select_from(RAGSignal)
-        .where(RAGSignal.created_at >= last_24h)
-    )).scalar() or 0
-    adaptations_total = (await db.execute(
-        select(func.count()).select_from(AdaptationEvent)
-    )).scalar() or 0
-    avg_feedback = (await db.execute(
-        select(func.avg(RAGFeedback.response_quality))
-    )).scalar()
+    avg_trust = row.avg_trust
+    avg_feedback = row.avg_feedback
 
     return {
         "tao": {
-            "lineage_nodes": lineage_count,
-            "lineage_24h": lineage_24h,
-            "trust_profiles": trust_profiles,
+            "lineage_nodes": row.lineage_count,
+            "lineage_24h": row.lineage_24h,
+            "trust_profiles": row.trust_profiles,
             "avg_trust_score": round(float(avg_trust), 3) if avg_trust is not None else None,
-            "tokens_issued": tokens_issued,
-            "tokens_24h": tokens_24h,
-            "hitl_pending": hitl_pending,
-            "hitl_total": hitl_total,
-            "audit_receipts": receipts_total,
+            "tokens_issued": row.tokens_issued,
+            "tokens_24h": row.tokens_24h,
+            "hitl_pending": row.hitl_pending,
+            "hitl_total": row.hitl_total,
+            "audit_receipts": row.receipts_total,
         },
         "capc": {
-            "evidence_packets": evidence_total,
-            "evidence_24h": evidence_24h,
-            "policy_violations": violations,
+            "evidence_packets": row.evidence_total,
+            "evidence_24h": row.evidence_24h,
+            "policy_violations": row.violations,
         },
         "oda_rag": {
-            "signals_total": signals_total,
-            "signals_24h": signals_24h,
-            "adaptations": adaptations_total,
+            "signals_total": row.signals_total,
+            "signals_24h": row.signals_24h,
+            "adaptations": row.adaptations_total,
             "avg_feedback_quality": round(float(avg_feedback), 3) if avg_feedback is not None else None,
         },
     }
