@@ -3,596 +3,994 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ArqAI — Design Preview</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<title>ArqAI — Design Preview v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* ═══════════════════════════════════════════════════
+     RESET & FOUNDATIONS
+     ═══════════════════════════════════════════════════ */
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
   :root {
-    --bg-page: #F8F9FB;
+    /* Brand — extracted from ArqAI logo */
+    --brand-blue: #0055F2;
+    --brand-lime: #C8E616;
+
+    /* Surfaces */
+    --bg-page: #F5F6F8;
     --bg-card: #FFFFFF;
-    --bg-sidebar: #0A0A14;
-    --bg-sidebar-hover: #13131F;
-    --accent-blue: #0066FF;
-    --accent-blue-soft: #EEF4FF;
-    --accent-lime: #84CC16;
-    --accent-lime-soft: #F0FDF4;
-    --text-primary: #0D0F12;
-    --text-secondary: #6B7280;
-    --text-tertiary: #9CA3AF;
-    --border: #E8EAED;
-    --border-subtle: #F3F4F6;
-    --risk-critical: #DC2626;
-    --risk-high: #F97316;
-    --risk-medium: #EAB308;
-    --risk-low: #22C55E;
-    --shadow-card: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
-    --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.06);
-    --radius-card: 16px;
-    --radius-btn: 10px;
-    --radius-badge: 8px;
+    --bg-elevated: #FFFFFF;
+    --bg-sidebar: #08080F;
+    --bg-sidebar-surface: rgba(255,255,255,0.04);
+    --bg-sidebar-hover: rgba(255,255,255,0.06);
+    --bg-sidebar-active: rgba(255,255,255,0.09);
+
+    /* Text */
+    --text-primary: #111318;
+    --text-secondary: #5F6577;
+    --text-tertiary: #8E95A7;
+    --text-quaternary: #B4BAC9;
+
+    /* Borders */
+    --border-primary: rgba(0,0,0,0.06);
+    --border-subtle: rgba(0,0,0,0.03);
+    --border-sidebar: rgba(255,255,255,0.07);
+
+    /* Risk palette — refined, less saturated */
+    --risk-critical: #E5243B;
+    --risk-critical-bg: #FEF1F2;
+    --risk-critical-text: #BA1A2E;
+    --risk-high: #ED6C02;
+    --risk-high-bg: #FFF5EB;
+    --risk-high-text: #C25700;
+    --risk-medium: #E5A800;
+    --risk-medium-bg: #FFF9E6;
+    --risk-medium-text: #946D00;
+    --risk-low: #1CA855;
+    --risk-low-bg: #EFFBF3;
+    --risk-low-text: #0C7A3A;
+
+    /* Shadows — Apple multi-layer approach */
+    --shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.03), 0 2px 8px rgba(0,0,0,0.03);
+    --shadow-md: 0 1px 2px rgba(0,0,0,0.03), 0 4px 16px rgba(0,0,0,0.05);
+    --shadow-lg: 0 2px 4px rgba(0,0,0,0.02), 0 8px 32px rgba(0,0,0,0.08);
+
+    /* Radii */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+
+    /* Easing — Apple-style spring curves */
+    --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
     background: var(--bg-page);
     color: var(--text-primary);
     display: flex;
     height: 100vh;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
   }
 
-  /* ── Sidebar ─────────────────────────────────────── */
+  /* ═══════════════════════════════════════════════════
+     SIDEBAR
+     ═══════════════════════════════════════════════════ */
   .sidebar {
-    width: 260px;
+    width: 252px;
     background: var(--bg-sidebar);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    border-right: 1px solid rgba(255,255,255,0.06);
+    position: relative;
+    z-index: 10;
+  }
+  /* Subtle inner glow on right edge */
+  .sidebar::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 1px; height: 100%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
   }
 
-  .sidebar-logo {
-    padding: 24px 24px 20px;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+  .sidebar-brand {
+    padding: 24px 20px 22px;
   }
-  .sidebar-logo h1 {
-    font-size: 20px;
+  .sidebar-brand-mark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  /* Simplified logo mark — geometric A */
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--brand-blue);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .logo-icon svg { width: 18px; height: 18px; }
+  .logo-icon::after {
+    content: '';
+    position: absolute;
+    top: -2px; right: -2px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--brand-lime);
+    border: 2px solid var(--bg-sidebar);
+  }
+  .brand-text {
+    display: flex;
+    flex-direction: column;
+  }
+  .brand-text h1 {
+    font-size: 16px;
     font-weight: 700;
-    color: #fff;
-    letter-spacing: -0.02em;
+    color: #FFFFFF;
+    letter-spacing: -0.025em;
+    line-height: 1;
   }
-  .sidebar-logo h1 span { color: var(--accent-blue); }
-  .sidebar-logo p {
-    font-size: 11px;
-    color: rgba(255,255,255,0.35);
-    margin-top: 2px;
-    letter-spacing: 0.02em;
+  .brand-text p {
+    font-size: 10px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 3px;
   }
 
-  .sidebar-workspace {
-    padding: 16px 16px 8px;
-  }
+  /* Workspace switcher */
+  .sidebar-workspace { padding: 0 12px; margin-bottom: 8px; }
   .workspace-btn {
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.08);
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: var(--bg-sidebar-surface);
+    border: 1px solid var(--border-sidebar);
     color: rgba(255,255,255,0.7);
-    font-size: 13px;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: all 0.2s var(--ease-smooth);
   }
-  .workspace-btn:hover { background: rgba(255,255,255,0.08); }
-  .workspace-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-lime); flex-shrink: 0; }
-  .workspace-btn .chevron { margin-left: auto; opacity: 0.4; font-size: 10px; }
+  .workspace-btn:hover {
+    background: var(--bg-sidebar-hover);
+    border-color: rgba(255,255,255,0.10);
+  }
+  .ws-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-lime); flex-shrink: 0; box-shadow: 0 0 6px rgba(200,230,22,0.4); }
+  .ws-chevron { margin-left: auto; opacity: 0.35; font-size: 9px; transition: transform 0.2s; }
 
-  .nav-section { padding: 8px 16px 4px; }
-  .nav-section-label {
+  /* Nav */
+  .nav-group { padding: 6px 12px; }
+  .nav-label {
     font-size: 10px;
     font-weight: 600;
-    color: rgba(255,255,255,0.25);
+    color: rgba(255,255,255,0.2);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 8px 8px 6px;
+    letter-spacing: 0.1em;
+    padding: 12px 12px 6px;
   }
-
   .nav-item {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 9px 12px;
-    border-radius: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
     font-size: 13px;
-    font-weight: 500;
-    color: rgba(255,255,255,0.50);
+    font-weight: 450;
+    color: rgba(255,255,255,0.45);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.18s var(--ease-smooth);
     text-decoration: none;
     position: relative;
+    margin-bottom: 1px;
   }
-  .nav-item:hover { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.05); }
+  .nav-item:hover {
+    color: rgba(255,255,255,0.75);
+    background: var(--bg-sidebar-hover);
+  }
   .nav-item.active {
-    color: #fff;
-    background: rgba(255,255,255,0.08);
+    color: #FFFFFF;
+    background: var(--bg-sidebar-active);
   }
   .nav-item.active::before {
     content: '';
     position: absolute;
-    left: 0;
+    left: -12px;
     top: 50%;
     transform: translateY(-50%);
     width: 3px;
-    height: 20px;
-    border-radius: 0 3px 3px 0;
-    background: var(--accent-lime);
+    height: 16px;
+    border-radius: 0 4px 4px 0;
+    background: var(--brand-lime);
+    box-shadow: 0 0 8px rgba(200,230,22,0.3);
   }
-  .nav-item svg { width: 18px; height: 18px; opacity: 0.6; flex-shrink: 0; }
-  .nav-item.active svg { opacity: 1; }
+  .nav-item svg {
+    width: 17px; height: 17px;
+    stroke-width: 1.7;
+    opacity: 0.5;
+    flex-shrink: 0;
+    transition: opacity 0.18s;
+  }
+  .nav-item:hover svg { opacity: 0.7; }
+  .nav-item.active svg { opacity: 0.9; }
+  .nav-badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(229,36,59,0.2);
+    color: #F87171;
+    padding: 1px 7px;
+    border-radius: 10px;
+  }
 
   .sidebar-footer {
     margin-top: auto;
-    padding: 16px;
-    border-top: 1px solid rgba(255,255,255,0.06);
+    padding: 12px;
   }
-  .health-widget {
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.04);
+  .health-pill {
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-sidebar-surface);
+    border: 1px solid var(--border-sidebar);
   }
-  .health-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-lime); animation: pulse 2s infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-  .health-widget .label { font-size: 11px; color: rgba(255,255,255,0.5); }
-  .sidebar-version { font-size: 10px; color: rgba(255,255,255,0.2); padding: 10px 12px 0; }
+  .health-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--brand-lime);
+    box-shadow: 0 0 6px rgba(200,230,22,0.4);
+    animation: glow 3s ease-in-out infinite;
+  }
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 6px rgba(200,230,22,0.4); }
+    50% { box-shadow: 0 0 10px rgba(200,230,22,0.6); }
+  }
+  .health-pill .label { font-size: 11px; color: rgba(255,255,255,0.4); font-weight: 450; }
+  .sidebar-meta {
+    padding: 8px 12px 4px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.15);
+    font-weight: 450;
+  }
 
-  /* ── Main ─────────────────────────────────────── */
+  /* ═══════════════════════════════════════════════════
+     MAIN AREA
+     ═══════════════════════════════════════════════════ */
   .main {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    background: var(--bg-page);
   }
 
-  /* Top Bar */
+  /* Top Bar — frosted glass */
   .topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 32px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-card);
+    padding: 14px 32px;
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border-primary);
     flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 5;
   }
-  .topbar-left h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
-  .topbar-left p { font-size: 12px; color: var(--text-tertiary); margin-top: 1px; }
-  .topbar-right { display: flex; align-items: center; gap: 16px; }
-  .notif-btn {
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .topbar-left h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .topbar-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border-primary);
+  }
+  .topbar-sub {
+    font-size: 12px;
+    font-weight: 450;
+    color: var(--text-tertiary);
+  }
+  .topbar-right { display: flex; align-items: center; gap: 8px; }
+  .topbar-btn {
     position: relative;
-    width: 36px; height: 36px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
+    width: 34px; height: 34px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-primary);
     background: var(--bg-card);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: all 0.15s var(--ease-smooth);
   }
-  .notif-btn:hover { background: var(--bg-page); }
-  .notif-badge {
+  .topbar-btn:hover {
+    background: var(--bg-page);
+    box-shadow: var(--shadow-xs);
+  }
+  .topbar-btn:active { transform: scale(0.96); }
+  .topbar-btn svg { width: 15px; height: 15px; color: var(--text-tertiary); }
+  .badge-count {
     position: absolute;
-    top: -4px; right: -4px;
-    width: 18px; height: 18px;
-    border-radius: 50%;
+    top: -5px; right: -5px;
+    min-width: 16px; height: 16px;
+    border-radius: 8px;
     background: var(--risk-critical);
     color: white;
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 9px;
+    font-weight: 700;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid var(--bg-card);
+    padding: 0 4px;
+    border: 2px solid var(--bg-page);
+    letter-spacing: 0;
   }
-  .avatar {
-    width: 36px; height: 36px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, var(--accent-blue), #4F46E5);
+  .avatar-btn {
+    width: 34px; height: 34px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--brand-blue) 0%, #3B7CFF 100%);
     color: white;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     display: flex;
     align-items: center;
     justify-content: center;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.15s var(--ease-spring);
+    letter-spacing: 0.01em;
   }
+  .avatar-btn:active { transform: scale(0.94); }
 
-  /* Content */
+  /* Content scroll area */
   .content {
     flex: 1;
     overflow-y: auto;
-    padding: 28px 32px 40px;
-    max-width: 1440px;
+    padding: 24px 32px 48px;
+    scroll-behavior: smooth;
   }
+  .content::-webkit-scrollbar { width: 6px; }
+  .content::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 3px; }
+  .content::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
 
-  /* ── Stat Cards ──────────────────────────────── */
+  /* ═══════════════════════════════════════════════════
+     STAT CARDS
+     ═══════════════════════════════════════════════════ */
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 24px;
+    gap: 14px;
+    margin-bottom: 20px;
   }
   .stat-card {
     background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    padding: 20px 24px;
-    box-shadow: var(--shadow-card);
-    transition: box-shadow 0.2s, transform 0.2s;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    padding: 22px 22px 18px;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.25s var(--ease-out);
+    position: relative;
+    overflow: hidden;
   }
-  .stat-card:hover { box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-lg);
+    opacity: 0;
+    transition: opacity 0.25s;
+    background: linear-gradient(135deg, rgba(0,85,242,0.02) 0%, transparent 60%);
+  }
+  .stat-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+    border-color: rgba(0,0,0,0.08);
+  }
+  .stat-card:hover::before { opacity: 1; }
   .stat-label {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 550;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     color: var(--text-tertiary);
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
   .stat-value {
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 700;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.035em;
     font-variant-numeric: tabular-nums;
     color: var(--text-primary);
     line-height: 1;
+  }
+  .stat-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
   }
   .stat-delta {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 12px;
-    font-weight: 500;
-    margin-top: 8px;
+    font-size: 11.5px;
+    font-weight: 550;
   }
-  .stat-delta.up { color: var(--risk-low); }
-  .stat-delta.down { color: var(--risk-critical); }
-  .stat-bar {
-    margin-top: 14px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--border-subtle);
-    overflow: hidden;
+  .stat-delta.up { color: var(--risk-low-text); }
+  .stat-delta.down { color: var(--risk-critical-text); }
+  .stat-delta svg { width: 11px; height: 11px; }
+  .stat-period {
+    font-size: 10.5px;
+    color: var(--text-quaternary);
+    font-weight: 450;
   }
-  .stat-bar-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 1s ease-out;
+  .stat-accent {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   }
 
-  /* ── Chart Cards ─────────────────────────────── */
-  .chart-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 24px;
-  }
+  /* ═══════════════════════════════════════════════════
+     CARDS — Shared
+     ═══════════════════════════════════════════════════ */
   .card {
     background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-card);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
     overflow: hidden;
+    transition: box-shadow 0.25s var(--ease-out);
   }
+  .card:hover { box-shadow: var(--shadow-md); }
   .card-header {
-    padding: 20px 24px 0;
+    padding: 20px 22px 0;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
   }
   .card-title {
-    font-size: 13px;
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text-primary);
+    letter-spacing: -0.005em;
   }
   .card-subtitle {
     font-size: 11px;
     color: var(--text-tertiary);
+    margin-top: 2px;
+    font-weight: 420;
   }
-  .card-body { padding: 20px 24px 24px; }
+  .card-body { padding: 18px 22px 22px; }
+  .link {
+    font-size: 11.5px;
+    font-weight: 550;
+    color: var(--brand-blue);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    margin: -4px -8px;
+  }
+  .link:hover {
+    background: rgba(0,85,242,0.06);
+  }
+  .link:active { transform: scale(0.97); }
 
-  /* Risk Distribution */
-  .risk-rows { display: flex; flex-direction: column; gap: 14px; }
-  .risk-row { display: flex; align-items: center; gap: 12px; }
-  .risk-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .risk-label { font-size: 13px; font-weight: 500; color: var(--text-secondary); width: 60px; }
-  .risk-bar-track { flex: 1; height: 8px; border-radius: 4px; background: var(--border-subtle); overflow: hidden; }
-  .risk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease-out; }
-  .risk-count { font-size: 13px; font-weight: 600; color: var(--text-primary); width: 50px; text-align: right; font-variant-numeric: tabular-nums; }
-  .risk-pct { font-size: 11px; color: var(--text-tertiary); width: 40px; text-align: right; }
+  /* ═══════════════════════════════════════════════════
+     RISK DISTRIBUTION
+     ═══════════════════════════════════════════════════ */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .risk-rows { display: flex; flex-direction: column; gap: 16px; }
+  .risk-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: opacity 0.15s;
+  }
+  .risk-row:hover { opacity: 0.85; }
+  .risk-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 3px var(--bg-card);
+  }
+  .risk-label {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    width: 56px;
+  }
+  .risk-bar-track {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-page);
+    overflow: hidden;
+  }
+  .risk-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s var(--ease-out);
+  }
+  .risk-count {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    width: 48px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .risk-pct {
+    font-size: 11px;
+    color: var(--text-quaternary);
+    width: 40px;
+    text-align: right;
+    font-weight: 450;
+  }
 
-  /* Rule bars */
-  .rule-rows { display: flex; flex-direction: column; gap: 10px; }
-  .rule-row { display: flex; align-items: center; gap: 10px; }
-  .rule-id { font-size: 12px; font-weight: 500; color: var(--text-secondary); width: 32px; font-family: 'JetBrains Mono', monospace; }
-  .rule-bar-track { flex: 1; height: 6px; border-radius: 3px; background: var(--border-subtle); overflow: hidden; }
-  .rule-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent-blue), #4F95FF); transition: width 0.6s ease-out; }
-  .rule-count { font-size: 12px; font-weight: 600; color: var(--text-primary); width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+  /* ═══════════════════════════════════════════════════
+     RULE BARS
+     ═══════════════════════════════════════════════════ */
+  .rule-rows { display: flex; flex-direction: column; gap: 11px; }
+  .rule-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: opacity 0.15s;
+  }
+  .rule-row:hover { opacity: 0.85; }
+  .rule-id {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    width: 28px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -0.02em;
+  }
+  .rule-name {
+    font-size: 11.5px;
+    font-weight: 450;
+    color: var(--text-secondary);
+    width: 100px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rule-bar-track {
+    flex: 1;
+    height: 5px;
+    border-radius: 2.5px;
+    background: var(--bg-page);
+    overflow: hidden;
+  }
+  .rule-bar-fill {
+    height: 100%;
+    border-radius: 2.5px;
+    background: var(--brand-blue);
+    opacity: 0.8;
+    transition: width 0.8s var(--ease-out);
+  }
+  .rule-count {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    width: 32px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
 
-  /* ── Governance Pillars ──────────────────────── */
+  /* ═══════════════════════════════════════════════════
+     GOVERNANCE PILLARS
+     ═══════════════════════════════════════════════════ */
   .gov-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    margin-bottom: 24px;
+    gap: 14px;
+    margin-bottom: 20px;
   }
   .gov-card {
     background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-card);
-    padding: 20px 24px;
-    border-left: 3px solid transparent;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 20px 22px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.25s var(--ease-out);
   }
-  .gov-card.blue  { border-left-color: var(--accent-blue); }
-  .gov-card.green { border-left-color: var(--accent-lime); }
-  .gov-card.amber { border-left-color: var(--risk-medium); }
-  .gov-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-  .gov-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
-  .gov-metric { margin-top: 16px; display: flex; align-items: baseline; gap: 6px; }
-  .gov-metric-value { font-size: 24px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
-  .gov-metric-label { font-size: 11px; color: var(--text-tertiary); }
-  .gov-footer { margin-top: 12px; display: flex; align-items: center; gap: 6px; }
-  .gov-footer-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .gov-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .gov-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+  }
+  .gov-card.blue::before  { background: var(--brand-blue); }
+  .gov-card.green::before { background: var(--brand-lime); }
+  .gov-card.amber::before { background: var(--risk-medium); }
+  .gov-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .gov-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.005em;
+  }
+  .gov-tag {
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: 5px;
+  }
+  .gov-tag.blue  { background: rgba(0,85,242,0.08); color: var(--brand-blue); }
+  .gov-tag.green { background: rgba(200,230,22,0.15); color: #5A7A00; }
+  .gov-tag.amber { background: rgba(229,168,0,0.1); color: var(--risk-medium-text); }
+  .gov-sub {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+    font-weight: 420;
+  }
+  .gov-metric { margin-top: 20px; }
+  .gov-metric-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .gov-metric-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    font-weight: 450;
+  }
+  .gov-footer {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .gov-footer-dot { width: 5px; height: 5px; border-radius: 50%; }
   .gov-footer-text { font-size: 11px; font-weight: 500; }
 
-  /* ── Table ───────────────────────────────────── */
-  .table-card { margin-bottom: 24px; }
-  .table-card .card-header { padding: 20px 24px 16px; }
+  /* ═══════════════════════════════════════════════════
+     TABLE
+     ═══════════════════════════════════════════════════ */
+  .table-card { margin-bottom: 20px; }
+  .table-card .card-header { padding: 20px 22px 16px; }
   table { width: 100%; border-collapse: collapse; }
   thead th {
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--text-tertiary);
-    padding: 0 24px 12px;
+    color: var(--text-quaternary);
+    padding: 0 22px 12px;
     text-align: left;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-primary);
   }
   thead th.right { text-align: right; }
-  tbody tr { transition: background 0.1s; }
-  tbody tr:hover { background: rgba(0,102,255,0.02); }
+  tbody tr {
+    transition: background 0.12s var(--ease-smooth);
+  }
+  tbody tr:hover { background: rgba(0,85,242,0.018); }
   tbody td {
-    padding: 14px 24px;
+    padding: 14px 22px;
     font-size: 13px;
+    font-weight: 420;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-subtle);
   }
-  tbody td.primary { color: var(--text-primary); font-weight: 500; }
-  tbody td.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-tertiary); }
-  tbody td.right { text-align: right; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.primary { color: var(--text-primary); font-weight: 530; }
+  td.mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+    letter-spacing: -0.02em;
+  }
+  td.right { text-align: right; }
+  td.amount {
+    font-variant-numeric: tabular-nums;
+    font-weight: 530;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
 
+  /* Badges */
   .badge {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 10px;
-    border-radius: var(--radius-badge);
+    padding: 3px 9px;
+    border-radius: 6px;
     font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums;
   }
-  .badge.critical { background: #FEF2F2; color: #DC2626; }
-  .badge.high { background: #FFF7ED; color: #EA580C; }
-  .badge.medium { background: #FFFBEB; color: #CA8A04; }
-  .badge.low { background: #F0FDF4; color: #16A34A; }
+  .badge.critical { background: var(--risk-critical-bg); color: var(--risk-critical-text); }
+  .badge.high     { background: var(--risk-high-bg); color: var(--risk-high-text); }
+  .badge.medium   { background: var(--risk-medium-bg); color: var(--risk-medium-text); }
+  .badge.low      { background: var(--risk-low-bg); color: var(--risk-low-text); }
 
-  /* ── Animations ──────────────────────────────── */
-  @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .animate-in {
-    animation: fadeInUp 0.4s ease-out both;
-  }
-  .delay-1 { animation-delay: 0.05s; }
-  .delay-2 { animation-delay: 0.1s; }
-  .delay-3 { animation-delay: 0.15s; }
-  .delay-4 { animation-delay: 0.2s; }
-  .delay-5 { animation-delay: 0.25s; }
-  .delay-6 { animation-delay: 0.3s; }
-  .delay-7 { animation-delay: 0.35s; }
-
-  /* View Details link */
-  .link {
+  .specialty-text {
     font-size: 12px;
-    font-weight: 500;
-    color: var(--accent-blue);
-    text-decoration: none;
-    cursor: pointer;
-    transition: opacity 0.15s;
+    color: var(--text-tertiary);
   }
-  .link:hover { opacity: 0.7; }
+  .rank-num {
+    font-weight: 600;
+    color: var(--text-quaternary);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     ANIMATIONS
+     ═══════════════════════════════════════════════════ */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .anim {
+    animation: fadeInUp 0.5s var(--ease-out) both;
+  }
+  .d1 { animation-delay: 0.03s; }
+  .d2 { animation-delay: 0.07s; }
+  .d3 { animation-delay: 0.11s; }
+  .d4 { animation-delay: 0.15s; }
+  .d5 { animation-delay: 0.20s; }
+  .d6 { animation-delay: 0.26s; }
+  .d7 { animation-delay: 0.32s; }
 </style>
 </head>
 <body>
 
-<!-- ── Sidebar ── -->
+<!-- ═══════════════════════════════════════════════════
+     SIDEBAR
+     ═══════════════════════════════════════════════════ -->
 <aside class="sidebar">
-  <div class="sidebar-logo">
-    <h1>Arq<span>AI</span></h1>
-    <p>FWA Detection & Prevention</p>
+  <div class="sidebar-brand">
+    <div class="sidebar-brand-mark">
+      <div class="logo-icon">
+        <svg viewBox="0 0 18 18" fill="none"><path d="M9 2L15.5 15H2.5L9 2Z" fill="white" fill-opacity="0.9"/></svg>
+      </div>
+      <div class="brand-text">
+        <h1>ArqAI</h1>
+        <p>Intelligence by design</p>
+      </div>
+    </div>
   </div>
 
   <div class="sidebar-workspace">
     <button class="workspace-btn">
-      <span class="dot"></span>
+      <span class="ws-dot"></span>
       Acme Health Plan
-      <span class="chevron">&#9662;</span>
+      <span class="ws-chevron">&#9662;</span>
     </button>
   </div>
 
-  <div class="nav-section">
-    <div class="nav-section-label">Overview</div>
+  <nav class="nav-group">
+    <div class="nav-label">Overview</div>
     <a class="nav-item active">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       Dashboard
     </a>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       Claims
     </a>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
       Cases
+      <span class="nav-badge">12</span>
     </a>
-  </div>
+  </nav>
 
-  <div class="nav-section">
-    <div class="nav-section-label">Investigation</div>
+  <nav class="nav-group">
+    <div class="nav-label">Investigation</div>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Rules
     </a>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
       Pipeline
     </a>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-2 4-4 6-2-2-4-4.05-4-6a4 4 0 0 1 4-4z"/><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"/><path d="m9 17 3 3 3-3"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       AI Assistant
     </a>
-  </div>
+  </nav>
 
-  <div class="nav-section">
-    <div class="nav-section-label">Compliance</div>
+  <nav class="nav-group">
+    <div class="nav-label">Compliance</div>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Audit Trail
     </a>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
       AI Governance
     </a>
     <a class="nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       Upload
     </a>
-  </div>
+  </nav>
 
   <div class="sidebar-footer">
-    <div class="health-widget">
+    <div class="health-pill">
       <span class="health-dot"></span>
       <span class="label">All systems operational</span>
     </div>
-    <div class="sidebar-version">v1.0 &middot; ArqAI Inc.</div>
+    <div class="sidebar-meta">v1.0 &middot; ArqAI Inc.</div>
   </div>
 </aside>
 
-<!-- ── Main Content ── -->
+<!-- ═══════════════════════════════════════════════════
+     MAIN CONTENT
+     ═══════════════════════════════════════════════════ -->
 <div class="main">
 
-  <!-- Top Bar -->
-  <div class="topbar">
+  <!-- Frosted Top Bar -->
+  <header class="topbar">
     <div class="topbar-left">
       <h2>Dashboard</h2>
-      <p>Executive overview &middot; Last updated 2 min ago</p>
+      <div class="topbar-divider"></div>
+      <span class="topbar-sub">Executive Overview</span>
     </div>
     <div class="topbar-right">
-      <button class="notif-btn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        <span class="notif-badge">3</span>
+      <button class="topbar-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
-      <div class="avatar">JD</div>
+      <button class="topbar-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="badge-count">3</span>
+      </button>
+      <button class="avatar-btn">JD</button>
     </div>
-  </div>
+  </header>
 
   <div class="content">
 
-    <!-- Stat Cards -->
+    <!-- ─── Stat Cards ─────────────────────────── -->
     <div class="stat-grid">
-      <div class="stat-card animate-in delay-1">
+      <div class="stat-card anim d1">
         <div class="stat-label">Claims Processed</div>
         <div class="stat-value">24,847</div>
-        <div class="stat-delta up">
-          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 2 L10 7 L8 7 L8 10 L4 10 L4 7 L2 7 Z" fill="currentColor"/></svg>
-          12.3% vs last period
+        <div class="stat-footer">
+          <span class="stat-delta up">
+            <svg viewBox="0 0 12 12"><path d="M6 2.5L9.5 7H8V10H4V7H2.5L6 2.5Z" fill="currentColor"/></svg>
+            12.3%
+          </span>
+          <span class="stat-period">vs last 30d</span>
         </div>
-        <div class="stat-bar"><div class="stat-bar-fill" style="width:100%; background: var(--accent-blue);"></div></div>
+        <div class="stat-accent" style="background: linear-gradient(90deg, var(--brand-blue), transparent);"></div>
       </div>
-      <div class="stat-card animate-in delay-2">
+      <div class="stat-card anim d2">
         <div class="stat-label">Claims Flagged</div>
         <div class="stat-value">3,291</div>
-        <div class="stat-delta up">
-          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 2 L10 7 L8 7 L8 10 L4 10 L4 7 L2 7 Z" fill="currentColor"/></svg>
-          8.1% vs last period
+        <div class="stat-footer">
+          <span class="stat-delta up">
+            <svg viewBox="0 0 12 12"><path d="M6 2.5L9.5 7H8V10H4V7H2.5L6 2.5Z" fill="currentColor"/></svg>
+            8.1%
+          </span>
+          <span class="stat-period">vs last 30d</span>
         </div>
-        <div class="stat-bar"><div class="stat-bar-fill" style="width:13.2%; background: var(--risk-high);"></div></div>
+        <div class="stat-accent" style="background: linear-gradient(90deg, var(--risk-high), transparent);"></div>
       </div>
-      <div class="stat-card animate-in delay-3">
+      <div class="stat-card anim d3">
         <div class="stat-label">Fraud Identified</div>
         <div class="stat-value">$4.2M</div>
-        <div class="stat-delta up">
-          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 2 L10 7 L8 7 L8 10 L4 10 L4 7 L2 7 Z" fill="currentColor"/></svg>
-          23.4% vs last period
+        <div class="stat-footer">
+          <span class="stat-delta up">
+            <svg viewBox="0 0 12 12"><path d="M6 2.5L9.5 7H8V10H4V7H2.5L6 2.5Z" fill="currentColor"/></svg>
+            23.4%
+          </span>
+          <span class="stat-period">vs last 30d</span>
         </div>
-        <div class="stat-bar"><div class="stat-bar-fill" style="width:67%; background: var(--accent-lime);"></div></div>
+        <div class="stat-accent" style="background: linear-gradient(90deg, var(--brand-lime), transparent); opacity: 0.7;"></div>
       </div>
-      <div class="stat-card animate-in delay-4">
+      <div class="stat-card anim d4">
         <div class="stat-label">Active Cases</div>
         <div class="stat-value">187</div>
-        <div class="stat-delta down">
-          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 10 L10 5 L8 5 L8 2 L4 2 L4 5 L2 5 Z" fill="currentColor"/></svg>
-          5.2% vs last period
+        <div class="stat-footer">
+          <span class="stat-delta down">
+            <svg viewBox="0 0 12 12"><path d="M6 9.5L9.5 5H8V2H4V5H2.5L6 9.5Z" fill="currentColor"/></svg>
+            5.2%
+          </span>
+          <span class="stat-period">vs last 30d</span>
         </div>
-        <div class="stat-bar"><div class="stat-bar-fill" style="width:42%; background: #8B5CF6;"></div></div>
+        <div class="stat-accent" style="background: linear-gradient(90deg, #7C5CFC, transparent);"></div>
       </div>
     </div>
 
-    <!-- Charts -->
-    <div class="chart-grid animate-in delay-5">
-      <!-- Risk Distribution -->
-      <div class="card">
+    <!-- ─── Charts ─────────────────────────────── -->
+    <div class="chart-grid">
+      <div class="card anim d5">
         <div class="card-header">
           <div>
             <div class="card-title">Risk Distribution</div>
-            <div class="card-subtitle">24,847 total claims scored</div>
+            <div class="card-subtitle">Across 24,847 scored claims</div>
           </div>
-          <a class="link">View all &rarr;</a>
+          <a class="link">View all &#8594;</a>
         </div>
         <div class="card-body">
           <div class="risk-rows">
             <div class="risk-row">
               <span class="risk-dot" style="background: var(--risk-low);"></span>
               <span class="risk-label">Low</span>
-              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:73.4%; background: var(--risk-low);"></div></div>
+              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:73.4%; background: var(--risk-low); opacity:0.75;"></div></div>
               <span class="risk-count">18,234</span>
               <span class="risk-pct">73.4%</span>
             </div>
             <div class="risk-row">
               <span class="risk-dot" style="background: var(--risk-medium);"></span>
               <span class="risk-label">Medium</span>
-              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:15.7%; background: var(--risk-medium);"></div></div>
+              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:15.7%; background: var(--risk-medium); opacity:0.75;"></div></div>
               <span class="risk-count">3,891</span>
               <span class="risk-pct">15.7%</span>
             </div>
             <div class="risk-row">
               <span class="risk-dot" style="background: var(--risk-high);"></span>
               <span class="risk-label">High</span>
-              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:8.6%; background: var(--risk-high);"></div></div>
+              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:8.6%; background: var(--risk-high); opacity:0.75;"></div></div>
               <span class="risk-count">2,134</span>
               <span class="risk-pct">8.6%</span>
             </div>
             <div class="risk-row">
               <span class="risk-dot" style="background: var(--risk-critical);"></span>
               <span class="risk-label">Critical</span>
-              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:2.4%; background: var(--risk-critical);"></div></div>
+              <div class="risk-bar-track"><div class="risk-bar-fill" style="width:2.4%; background: var(--risk-critical); opacity:0.75;"></div></div>
               <span class="risk-count">588</span>
               <span class="risk-pct">2.4%</span>
             </div>
@@ -600,136 +998,144 @@
         </div>
       </div>
 
-      <!-- Rule Effectiveness -->
-      <div class="card">
+      <div class="card anim d5">
         <div class="card-header">
           <div>
             <div class="card-title">Top Rules by Triggers</div>
             <div class="card-subtitle">Last 30 days</div>
           </div>
-          <a class="link">All rules &rarr;</a>
+          <a class="link">All rules &#8594;</a>
         </div>
         <div class="card-body">
           <div class="rule-rows">
-            <div class="rule-row"><span class="rule-id">M4</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:88%;"></div></div><span class="rule-count">842</span></div>
-            <div class="rule-row"><span class="rule-id">M1</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:76%;"></div></div><span class="rule-count">724</span></div>
-            <div class="rule-row"><span class="rule-id">P6</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:65%;"></div></div><span class="rule-count">618</span></div>
-            <div class="rule-row"><span class="rule-id">M3</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:52%;"></div></div><span class="rule-count">491</span></div>
-            <div class="rule-row"><span class="rule-id">P5</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:43%;"></div></div><span class="rule-count">412</span></div>
-            <div class="rule-row"><span class="rule-id">M5</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:37%;"></div></div><span class="rule-count">354</span></div>
-            <div class="rule-row"><span class="rule-id">P1</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:29%;"></div></div><span class="rule-count">278</span></div>
-            <div class="rule-row"><span class="rule-id">M6</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:21%;"></div></div><span class="rule-count">201</span></div>
+            <div class="rule-row"><span class="rule-id">M4</span><span class="rule-name">Phantom Billing</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:88%;"></div></div><span class="rule-count">842</span></div>
+            <div class="rule-row"><span class="rule-id">M1</span><span class="rule-name">Upcoding</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:76%;"></div></div><span class="rule-count">724</span></div>
+            <div class="rule-row"><span class="rule-id">P6</span><span class="rule-name">Phantom Claims</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:65%;"></div></div><span class="rule-count">618</span></div>
+            <div class="rule-row"><span class="rule-id">M3</span><span class="rule-name">Duplicate Billing</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:52%;"></div></div><span class="rule-count">491</span></div>
+            <div class="rule-row"><span class="rule-id">P5</span><span class="rule-name">Ctrl Sub Diversion</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:43%;"></div></div><span class="rule-count">412</span></div>
+            <div class="rule-row"><span class="rule-id">M5</span><span class="rule-name">Kickback</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:37%;"></div></div><span class="rule-count">354</span></div>
+            <div class="rule-row"><span class="rule-id">P1</span><span class="rule-name">Rx Forgery</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:29%;"></div></div><span class="rule-count">278</span></div>
+            <div class="rule-row"><span class="rule-id">M6</span><span class="rule-name">Med. Unnecessary</span><div class="rule-bar-track"><div class="rule-bar-fill" style="width:21%;"></div></div><span class="rule-count">201</span></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Governance Pillars -->
-    <div class="gov-grid animate-in delay-6">
-      <div class="gov-card blue">
-        <div class="gov-name">ArqFlow</div>
+    <!-- ─── Governance Pillars ─────────────────── -->
+    <div class="gov-grid">
+      <div class="gov-card blue anim d6">
+        <div class="gov-top">
+          <div class="gov-name">ArqFlow</div>
+          <span class="gov-tag blue">TAO</span>
+        </div>
         <div class="gov-sub">Trust-Aware Orchestration</div>
         <div class="gov-metric">
           <span class="gov-metric-value">72%</span>
-          <span class="gov-metric-label">Avg Trust Score</span>
         </div>
+        <div class="gov-metric-label">Avg Trust Score</div>
         <div class="gov-footer">
-          <span class="gov-footer-dot" style="background: var(--accent-lime);"></span>
-          <span class="gov-footer-text" style="color: var(--risk-low);">0 HITL Pending</span>
+          <span class="gov-footer-dot" style="background: var(--brand-lime);"></span>
+          <span class="gov-footer-text" style="color: var(--risk-low-text);">0 HITL Pending</span>
         </div>
       </div>
-      <div class="gov-card green">
-        <div class="gov-name">ArqGuard</div>
+      <div class="gov-card green anim d6">
+        <div class="gov-top">
+          <div class="gov-name">ArqGuard</div>
+          <span class="gov-tag green">CAPC</span>
+        </div>
         <div class="gov-sub">Compliance Engine</div>
         <div class="gov-metric">
           <span class="gov-metric-value">98.7%</span>
-          <span class="gov-metric-label">Compliance Rate</span>
         </div>
+        <div class="gov-metric-label">Compliance Rate</div>
         <div class="gov-footer">
-          <span class="gov-footer-dot" style="background: var(--accent-lime);"></span>
-          <span class="gov-footer-text" style="color: var(--risk-low);">0 Violations</span>
+          <span class="gov-footer-dot" style="background: var(--brand-lime);"></span>
+          <span class="gov-footer-text" style="color: var(--risk-low-text);">0 Violations</span>
         </div>
       </div>
-      <div class="gov-card amber">
-        <div class="gov-name">ArqSight</div>
-        <div class="gov-sub">Adaptive RAG</div>
+      <div class="gov-card amber anim d6">
+        <div class="gov-top">
+          <div class="gov-name">ArqSight</div>
+          <span class="gov-tag amber">RAG</span>
+        </div>
+        <div class="gov-sub">Adaptive Retrieval</div>
         <div class="gov-metric">
           <span class="gov-metric-value">24</span>
-          <span class="gov-metric-label">Signals (24h)</span>
         </div>
+        <div class="gov-metric-label">Signals (24h)</div>
         <div class="gov-footer">
-          <span class="gov-footer-dot" style="background: var(--accent-lime); animation: pulse 2s infinite;"></span>
-          <span class="gov-footer-text" style="color: var(--risk-low);">Active</span>
+          <span class="gov-footer-dot" style="background: var(--brand-lime); animation: glow 3s ease-in-out infinite;"></span>
+          <span class="gov-footer-text" style="color: var(--risk-low-text);">Active</span>
         </div>
       </div>
     </div>
 
-    <!-- Providers Table -->
-    <div class="card table-card animate-in delay-7">
+    <!-- ─── Providers Table ────────────────────── -->
+    <div class="card table-card anim d7">
       <div class="card-header">
         <div>
           <div class="card-title">Top Flagged Providers</div>
           <div class="card-subtitle">Ranked by average risk score</div>
         </div>
-        <a class="link">View all &rarr;</a>
+        <a class="link">View all &#8594;</a>
       </div>
       <table>
         <thead>
           <tr>
-            <th>#</th>
+            <th style="width:48px">#</th>
             <th>NPI</th>
             <th>Provider</th>
             <th>Specialty</th>
-            <th class="right">Risk Score</th>
+            <th class="right">Risk</th>
             <th class="right">Flagged</th>
             <th class="right">Amount</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td class="primary">1</td>
+            <td><span class="rank-num">01</span></td>
             <td class="mono">1234567890</td>
             <td class="primary">Dr. James Mitchell</td>
-            <td>Orthopedic Surgery</td>
+            <td class="specialty-text">Orthopedic Surgery</td>
             <td class="right"><span class="badge critical">92.4</span></td>
             <td class="right">47</td>
-            <td class="right primary">$284,120</td>
+            <td class="right amount">$284,120</td>
           </tr>
           <tr>
-            <td class="primary">2</td>
+            <td><span class="rank-num">02</span></td>
             <td class="mono">2345678901</td>
             <td class="primary">Premier Lab Services</td>
-            <td>Clinical Laboratory</td>
+            <td class="specialty-text">Clinical Laboratory</td>
             <td class="right"><span class="badge critical">88.1</span></td>
             <td class="right">92</td>
-            <td class="right primary">$412,850</td>
+            <td class="right amount">$412,850</td>
           </tr>
           <tr>
-            <td class="primary">3</td>
+            <td><span class="rank-num">03</span></td>
             <td class="mono">3456789012</td>
             <td class="primary">Dr. Sarah Chen</td>
-            <td>Internal Medicine</td>
+            <td class="specialty-text">Internal Medicine</td>
             <td class="right"><span class="badge high">76.3</span></td>
             <td class="right">34</td>
-            <td class="right primary">$156,200</td>
+            <td class="right amount">$156,200</td>
           </tr>
           <tr>
-            <td class="primary">4</td>
+            <td><span class="rank-num">04</span></td>
             <td class="mono">4567890123</td>
             <td class="primary">CareFirst Pharmacy</td>
-            <td>Retail Pharmacy</td>
+            <td class="specialty-text">Retail Pharmacy</td>
             <td class="right"><span class="badge high">71.8</span></td>
             <td class="right">61</td>
-            <td class="right primary">$198,430</td>
+            <td class="right amount">$198,430</td>
           </tr>
           <tr>
-            <td class="primary">5</td>
+            <td><span class="rank-num">05</span></td>
             <td class="mono">5678901234</td>
             <td class="primary">Dr. Robert Kim</td>
-            <td>Family Medicine</td>
+            <td class="specialty-text">Family Medicine</td>
             <td class="right"><span class="badge medium">58.2</span></td>
             <td class="right">22</td>
-            <td class="right primary">$87,640</td>
+            <td class="right amount">$87,640</td>
           </tr>
         </tbody>
       </table>
