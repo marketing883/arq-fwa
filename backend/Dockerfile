@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir . && pip install --no-cache-dir httpx
 COPY alembic.ini .
 COPY alembic/ alembic/
 COPY app/ app/
+COPY worker.py .
 COPY entrypoint.sh .
 
 RUN chmod +x entrypoint.sh
