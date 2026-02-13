@@ -2,9 +2,13 @@
 import { useEffect, useState } from "react";
 import { rules, type RuleSummary, type RuleStats } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Settings, ToggleLeft, ToggleRight, Save, RotateCcw } from "lucide-react";
+import { ToggleLeft, ToggleRight, Save, RotateCcw } from "lucide-react";
 
 type ClaimTypeTab = "medical" | "pharmacy";
+
+function SkeletonBar({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded bg-border", className)} />;
+}
 
 function renderThresholdInput(
   key: string,
@@ -14,12 +18,12 @@ function renderThresholdInput(
   if (typeof value === "boolean") {
     return (
       <div key={key} className="flex items-center justify-between py-2">
-        <label className="text-sm text-gray-700 font-medium">{key}</label>
+        <label className="text-sm text-text-secondary font-medium">{key}</label>
         <input
           type="checkbox"
           checked={value}
           onChange={(e) => onChange(key, e.target.checked)}
-          className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+          className="h-4 w-4 text-brand-blue rounded border-border focus:ring-brand-blue/20"
         />
       </div>
     );
@@ -27,13 +31,13 @@ function renderThresholdInput(
   if (typeof value === "number") {
     return (
       <div key={key} className="flex items-center justify-between gap-4 py-2">
-        <label className="text-sm text-gray-700 font-medium">{key}</label>
+        <label className="text-sm text-text-secondary font-medium">{key}</label>
         <input
           type="number"
           value={value}
           onChange={(e) => onChange(key, parseFloat(e.target.value) || 0)}
           step="any"
-          className="w-32 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-right"
+          className="input w-32 text-right"
         />
       </div>
     );
@@ -41,12 +45,12 @@ function renderThresholdInput(
   if (typeof value === "string") {
     return (
       <div key={key} className="flex items-center justify-between gap-4 py-2">
-        <label className="text-sm text-gray-700 font-medium">{key}</label>
+        <label className="text-sm text-text-secondary font-medium">{key}</label>
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(key, e.target.value)}
-          className="w-48 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="input w-48"
         />
       </div>
     );
@@ -54,7 +58,7 @@ function renderThresholdInput(
   // Nested object / array: JSON textarea
   return (
     <div key={key} className="py-2">
-      <label className="text-sm text-gray-700 font-medium block mb-1">{key}</label>
+      <label className="text-sm text-text-secondary font-medium block mb-1">{key}</label>
       <textarea
         value={JSON.stringify(value, null, 2)}
         onChange={(e) => {
@@ -65,7 +69,7 @@ function renderThresholdInput(
           }
         }}
         rows={4}
-        className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+        className="input w-full font-mono resize-none"
       />
     </div>
   );
@@ -172,22 +176,21 @@ export default function RuleConfigurationPage() {
   return (
     <div>
       {/* Page Title */}
-      <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
-        <Settings className="w-6 h-6 text-gray-500" />
+      <h1 className="text-[15px] font-semibold text-text-primary tracking-tight mb-6">
         Rule Configuration
       </h1>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-red-700">
+        <div className="bg-risk-critical-bg border border-risk-critical rounded-lg p-4 mb-6 text-risk-critical-text">
           {error}
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ===== LEFT PANEL: Rules List ===== */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="card overflow-hidden">
           {/* Tabs */}
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-border">
             {(["medical", "pharmacy"] as ClaimTypeTab[]).map((tab) => (
               <button
                 key={tab}
@@ -198,10 +201,8 @@ export default function RuleConfigurationPage() {
                   setRuleStats(null);
                 }}
                 className={cn(
-                  "flex-1 px-4 py-3 text-sm font-medium text-center transition-colors capitalize",
-                  activeTab === tab
-                    ? "border-b-2 border-blue-600 text-blue-600 bg-blue-50/50"
-                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                  "tab flex-1 text-center capitalize",
+                  activeTab === tab && "tab-active"
                 )}
               >
                 {tab}
@@ -211,24 +212,30 @@ export default function RuleConfigurationPage() {
 
           {/* Rules table */}
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading rules...</div>
+            <div className="p-6 space-y-3">
+              <SkeletonBar className="h-4 w-3/4" />
+              <SkeletonBar className="h-4 w-full" />
+              <SkeletonBar className="h-4 w-5/6" />
+              <SkeletonBar className="h-4 w-full" />
+              <SkeletonBar className="h-4 w-2/3" />
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600">Rule ID</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600">Category</th>
-                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600">Fraud Type</th>
-                    <th className="text-right px-4 py-2.5 font-semibold text-gray-600">Weight</th>
-                    <th className="text-center px-4 py-2.5 font-semibold text-gray-600">Enabled</th>
-                    <th className="text-center px-4 py-2.5 font-semibold text-gray-600">Edit</th>
+                <thead className="table-header">
+                  <tr>
+                    <th className="text-left">Rule ID</th>
+                    <th className="text-left">Category</th>
+                    <th className="text-left">Fraud Type</th>
+                    <th className="text-right">Weight</th>
+                    <th className="text-center">Enabled</th>
+                    <th className="text-center">Edit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredRules.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan={6} className="px-5 py-8 text-center text-text-tertiary">
                         No rules found for {activeTab} claims.
                       </td>
                     </tr>
@@ -237,31 +244,29 @@ export default function RuleConfigurationPage() {
                       <tr
                         key={rule.rule_id}
                         className={cn(
-                          "border-b border-gray-100 transition-colors",
-                          selectedRuleId === rule.rule_id
-                            ? "bg-blue-50"
-                            : "hover:bg-gray-50"
+                          "table-row",
+                          selectedRuleId === rule.rule_id && "bg-brand-blue/5"
                         )}
                       >
-                        <td className="px-4 py-2.5 font-mono text-xs">{rule.rule_id}</td>
-                        <td className="px-4 py-2.5 text-gray-700 capitalize">{rule.category}</td>
-                        <td className="px-4 py-2.5 text-gray-700 capitalize">
+                        <td className="font-mono text-xs">{rule.rule_id}</td>
+                        <td className="capitalize">{rule.category}</td>
+                        <td className="capitalize">
                           {rule.fraud_type.replace(/_/g, " ")}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono">{rule.weight.toFixed(1)}</td>
-                        <td className="px-4 py-2.5 text-center">
+                        <td className="text-right font-mono">{rule.weight.toFixed(1)}</td>
+                        <td className="text-center">
                           <span
                             className={cn(
                               "inline-block w-3 h-3 rounded-full",
-                              rule.enabled ? "bg-green-500" : "bg-red-400"
+                              rule.enabled ? "bg-risk-low" : "bg-risk-critical"
                             )}
                             title={rule.enabled ? "Enabled" : "Disabled"}
                           />
                         </td>
-                        <td className="px-4 py-2.5 text-center">
+                        <td className="text-center">
                           <button
                             onClick={() => selectRule(rule)}
-                            className="text-blue-600 hover:text-blue-800 text-xs font-medium hover:underline"
+                            className="text-brand-blue hover:text-brand-blue text-xs font-medium hover:underline"
                           >
                             Edit
                           </button>
@@ -278,27 +283,31 @@ export default function RuleConfigurationPage() {
         {/* ===== RIGHT PANEL: Rule Config ===== */}
         <div>
           {!selectedRule ? (
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
-              <Settings className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">Select a rule from the list to configure it.</p>
+            <div className="card p-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-surface-page mx-auto mb-3 flex items-center justify-center">
+                <svg className="w-6 h-6 text-text-quaternary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                </svg>
+              </div>
+              <p className="text-text-tertiary text-sm">Select a rule from the list to configure it.</p>
             </div>
           ) : (
             <div className="space-y-6">
               {/* Rule Config Card */}
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+              <div className="card p-6">
                 {/* Header */}
                 <div className="mb-6">
-                  <h2 className="text-lg font-semibold font-mono">{selectedRule.rule_id}</h2>
-                  <p className="text-sm text-gray-500 capitalize">{selectedRule.category}</p>
+                  <h2 className="card-title font-mono">{selectedRule.rule_id}</h2>
+                  <p className="card-subtitle capitalize">{selectedRule.category}</p>
                 </div>
 
                 {/* Description */}
                 {selectedRule.description && (
                   <div className="mb-4">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">
+                    <label className="section-label block mb-1">
                       Description
                     </label>
-                    <p className="text-sm text-gray-700 bg-gray-50 rounded-md p-3">
+                    <p className="text-sm text-text-secondary bg-surface-page rounded-md p-3">
                       {selectedRule.description}
                     </p>
                   </div>
@@ -307,10 +316,10 @@ export default function RuleConfigurationPage() {
                 {/* Detection Logic */}
                 {selectedRule.detection_logic && (
                   <div className="mb-4">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">
+                    <label className="section-label block mb-1">
                       Detection Logic
                     </label>
-                    <p className="text-xs text-gray-600 bg-gray-50 rounded-md p-3 font-mono leading-relaxed">
+                    <p className="text-xs text-text-secondary bg-surface-page rounded-md p-3 font-mono leading-relaxed">
                       {selectedRule.detection_logic}
                     </p>
                   </div>
@@ -318,7 +327,7 @@ export default function RuleConfigurationPage() {
 
                 {/* Weight Slider */}
                 <div className="mb-4">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">
+                  <label className="section-label block mb-2">
                     Weight
                   </label>
                   <div className="flex items-center gap-4">
@@ -329,9 +338,9 @@ export default function RuleConfigurationPage() {
                       step="0.5"
                       value={editWeight}
                       onChange={(e) => setEditWeight(parseFloat(e.target.value))}
-                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      className="flex-1 h-2 bg-border rounded-lg appearance-none cursor-pointer accent-brand-blue"
                     />
-                    <span className="w-12 text-center text-sm font-mono font-semibold bg-gray-100 rounded-md px-2 py-1">
+                    <span className="w-12 text-center text-sm font-mono font-semibold bg-surface-page rounded-md px-2 py-1">
                       {editWeight.toFixed(1)}
                     </span>
                   </div>
@@ -339,7 +348,7 @@ export default function RuleConfigurationPage() {
 
                 {/* Enabled Toggle */}
                 <div className="mb-4">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">
+                  <label className="section-label block mb-2">
                     Enabled
                   </label>
                   <button
@@ -347,8 +356,8 @@ export default function RuleConfigurationPage() {
                     className={cn(
                       "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
                       editEnabled
-                        ? "bg-green-50 text-green-700 border border-green-200"
-                        : "bg-red-50 text-red-700 border border-red-200"
+                        ? "bg-risk-low-bg text-risk-low-text border border-risk-low"
+                        : "bg-risk-critical-bg text-risk-critical-text border border-risk-critical"
                     )}
                   >
                     {editEnabled ? (
@@ -368,10 +377,10 @@ export default function RuleConfigurationPage() {
                 {/* Thresholds */}
                 {Object.keys(editThresholds).length > 0 && (
                   <div className="mb-6">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">
+                    <label className="section-label block mb-2">
                       Thresholds
                     </label>
-                    <div className="border border-gray-200 rounded-md p-3 space-y-1 divide-y divide-gray-100">
+                    <div className="border border-border rounded-md p-3 space-y-1 divide-y divide-border-subtle">
                       {Object.entries(editThresholds).map(([key, value]) =>
                         renderThresholdInput(key, value, handleThresholdChange)
                       )}
@@ -380,15 +389,13 @@ export default function RuleConfigurationPage() {
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
+                <div className="flex items-center gap-3 pt-4 border-t border-border">
                   <button
                     onClick={handleSave}
                     disabled={saving}
                     className={cn(
-                      "flex items-center gap-2 px-4 py-2 text-sm rounded-md font-medium transition-colors",
-                      saving
-                        ? "bg-blue-400 text-white cursor-not-allowed"
-                        : "bg-blue-600 text-white hover:bg-blue-700"
+                      "btn-primary",
+                      saving && "opacity-60 cursor-not-allowed"
                     )}
                   >
                     <Save className="w-4 h-4" />
@@ -397,14 +404,14 @@ export default function RuleConfigurationPage() {
                   <button
                     onClick={handleReset}
                     disabled={saving}
-                    className="flex items-center gap-2 px-4 py-2 text-sm rounded-md font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                    className="btn-secondary"
                   >
                     <RotateCcw className="w-4 h-4" />
                     Reset to Defaults
                   </button>
                   <button
                     onClick={handleCancel}
-                    className="px-4 py-2 text-sm rounded-md font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                    className="px-4 py-2 text-sm rounded-md font-medium text-text-tertiary hover:text-text-secondary hover:bg-surface-page transition-colors"
                   >
                     Cancel
                   </button>
@@ -412,35 +419,48 @@ export default function RuleConfigurationPage() {
               </div>
 
               {/* Stats Section */}
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+              <div className="card p-6">
+                <h3 className="section-label mb-4">
                   Rule Statistics
                 </h3>
                 {statsLoading ? (
-                  <p className="text-sm text-gray-500">Loading stats...</p>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <SkeletonBar className="h-8 w-16 mx-auto mb-2" />
+                      <SkeletonBar className="h-3 w-20 mx-auto" />
+                    </div>
+                    <div className="text-center">
+                      <SkeletonBar className="h-8 w-16 mx-auto mb-2" />
+                      <SkeletonBar className="h-3 w-20 mx-auto" />
+                    </div>
+                    <div className="text-center">
+                      <SkeletonBar className="h-8 w-16 mx-auto mb-2" />
+                      <SkeletonBar className="h-3 w-20 mx-auto" />
+                    </div>
+                  </div>
                 ) : ruleStats ? (
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center">
-                      <p className="text-2xl font-bold text-gray-900">
+                      <p className="text-2xl font-bold text-text-primary tracking-tight leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>
                         {ruleStats.times_triggered}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">Times Triggered</p>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-text-tertiary mt-2">Times Triggered</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-2xl font-bold text-gray-900">
+                      <p className="text-2xl font-bold text-text-primary tracking-tight leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>
                         {ruleStats.avg_severity.toFixed(2)}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">Avg Severity</p>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-text-tertiary mt-2">Avg Severity</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-2xl font-bold text-gray-900">
+                      <p className="text-2xl font-bold text-text-primary tracking-tight leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>
                         {(ruleStats.trigger_rate * 100).toFixed(1)}%
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">Trigger Rate</p>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-text-tertiary mt-2">Trigger Rate</p>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">No stats available for this rule.</p>
+                  <p className="text-sm text-text-tertiary">No stats available for this rule.</p>
                 )}
               </div>
             </div>

@@ -60,7 +60,7 @@ function StepIndicator({ current }: { current: number }) {
               <div
                 className={cn(
                   "h-px w-10 sm:w-16",
-                  isComplete || isActive ? "bg-blue-500" : "bg-gray-300",
+                  isComplete || isActive ? "bg-brand-blue" : "bg-border",
                 )}
               />
             )}
@@ -69,10 +69,10 @@ function StepIndicator({ current }: { current: number }) {
                 className={cn(
                   "flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors",
                   isComplete
-                    ? "bg-blue-600 text-white"
+                    ? "bg-brand-blue text-white"
                     : isActive
-                      ? "bg-blue-600 text-white ring-4 ring-blue-100"
-                      : "bg-gray-200 text-gray-500",
+                      ? "bg-brand-blue text-white ring-4 ring-brand-blue/20"
+                      : "bg-border text-text-tertiary",
                 )}
               >
                 {isComplete ? (
@@ -84,7 +84,7 @@ function StepIndicator({ current }: { current: number }) {
               <span
                 className={cn(
                   "hidden text-sm font-medium sm:inline",
-                  isActive ? "text-gray-900" : "text-gray-500",
+                  isActive ? "text-text-primary" : "text-text-tertiary",
                 )}
               >
                 {step.label}
@@ -291,20 +291,20 @@ export default function UploadPage() {
     <div className="space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Upload Claims Data</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <h1 className="text-[15px] font-semibold text-text-primary tracking-tight">Upload Claims Data</h1>
+        <p className="mt-1 text-sm text-text-tertiary">
           Import a CSV of claims into a new workspace for FWA analysis.
         </p>
       </div>
 
       {/* Step indicator */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+      <div className="card p-4">
         <StepIndicator current={step} />
       </div>
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="flex items-start gap-3 rounded-lg border border-risk-critical bg-risk-critical-bg px-4 py-3 text-sm text-risk-critical-text">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -314,10 +314,10 @@ export default function UploadPage() {
       {/*  STEP 1 - Create Workspace                                         */}
       {/* ================================================================== */}
       {step === 1 && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-          <div className="border-b border-gray-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-gray-900">Create Workspace</h2>
-            <p className="mt-1 text-sm text-gray-500">
+        <div className="card">
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="text-lg font-semibold text-text-primary">Create Workspace</h2>
+            <p className="mt-1 text-sm text-text-tertiary">
               Set up a new workspace and upload your claims CSV file.
             </p>
           </div>
@@ -325,8 +325,8 @@ export default function UploadPage() {
           <div className="px-6 py-6 space-y-5">
             {/* Name */}
             <div>
-              <label htmlFor="ws-name" className="block text-sm font-medium text-gray-700 mb-1">
-                Workspace Name <span className="text-red-500">*</span>
+              <label htmlFor="ws-name" className="block text-sm font-medium text-text-secondary mb-1">
+                Workspace Name <span className="text-risk-critical">*</span>
               </label>
               <input
                 id="ws-name"
@@ -334,13 +334,13 @@ export default function UploadPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Q4 2025 Medical Claims"
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="input block w-full placeholder:text-text-quaternary"
               />
             </div>
 
             {/* Client name */}
             <div>
-              <label htmlFor="ws-client" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="ws-client" className="block text-sm font-medium text-text-secondary mb-1">
                 Client Name
               </label>
               <input
@@ -349,13 +349,13 @@ export default function UploadPage() {
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 placeholder="e.g. Acme Health Plan"
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="input block w-full placeholder:text-text-quaternary"
               />
             </div>
 
             {/* Description */}
             <div>
-              <label htmlFor="ws-desc" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="ws-desc" className="block text-sm font-medium text-text-secondary mb-1">
                 Description
               </label>
               <textarea
@@ -364,14 +364,14 @@ export default function UploadPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Optional notes about this dataset..."
                 rows={3}
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="input block w-full placeholder:text-text-quaternary"
               />
             </div>
 
             {/* Claim type */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Claim Type <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-text-secondary mb-1">
+                Claim Type <span className="text-risk-critical">*</span>
               </label>
               <div className="flex gap-3">
                 {(["medical", "pharmacy"] as const).map((ct) => (
@@ -382,8 +382,8 @@ export default function UploadPage() {
                     className={cn(
                       "px-4 py-2 rounded-md text-sm font-medium transition-colors capitalize",
                       claimType === ct
-                        ? "bg-blue-600 text-white"
-                        : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50",
+                        ? "bg-brand-blue text-white"
+                        : "bg-surface-card text-text-secondary border border-border hover:bg-surface-page",
                     )}
                   >
                     {ct}
@@ -394,8 +394,8 @@ export default function UploadPage() {
 
             {/* File upload zone */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                CSV File <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-text-secondary mb-1">
+                CSV File <span className="text-risk-critical">*</span>
               </label>
 
               <div
@@ -406,10 +406,10 @@ export default function UploadPage() {
                 className={cn(
                   "cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors",
                   dragActive
-                    ? "border-blue-500 bg-blue-50"
+                    ? "border-brand-blue bg-brand-blue/5"
                     : file
-                      ? "border-green-300 bg-green-50"
-                      : "border-gray-300 bg-gray-50 hover:border-gray-400 hover:bg-gray-100",
+                      ? "border-risk-low bg-risk-low-bg"
+                      : "border-border bg-surface-page hover:border-text-quaternary hover:bg-surface-page",
                 )}
               >
                 <input
@@ -422,22 +422,22 @@ export default function UploadPage() {
 
                 {file ? (
                   <div className="flex flex-col items-center gap-2">
-                    <FileSpreadsheet className="h-10 w-10 text-green-500" />
-                    <p className="text-sm font-medium text-gray-900">{file.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <FileSpreadsheet className="h-10 w-10 text-risk-low" />
+                    <p className="text-sm font-medium text-text-primary">{file.name}</p>
+                    <p className="text-xs text-text-tertiary">
                       {(file.size / 1024).toFixed(1)} KB
                     </p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-text-quaternary">
                       Click or drag to replace
                     </p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-2">
-                    <Upload className="h-10 w-10 text-gray-400" />
-                    <p className="text-sm font-medium text-gray-700">
+                    <Upload className="h-10 w-10 text-text-quaternary" />
+                    <p className="text-sm font-medium text-text-secondary">
                       Drag and drop your CSV file here
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-text-tertiary">
                       or click to browse
                     </p>
                   </div>
@@ -447,15 +447,13 @@ export default function UploadPage() {
           </div>
 
           {/* Step 1 footer */}
-          <div className="flex justify-end border-t border-gray-200 px-6 py-4">
+          <div className="flex justify-end border-t border-border px-6 py-4">
             <button
               onClick={submitStep1}
               disabled={loading}
               className={cn(
-                "inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors",
-                loading
-                  ? "cursor-not-allowed bg-blue-400"
-                  : "bg-blue-600 hover:bg-blue-700",
+                "btn-primary",
+                loading && "cursor-not-allowed opacity-60",
               )}
             >
               {loading ? (
@@ -478,43 +476,43 @@ export default function UploadPage() {
       {/*  STEP 2 - Column Mapping                                           */}
       {/* ================================================================== */}
       {step === 2 && preview && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-          <div className="border-b border-gray-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-gray-900">Column Mapping</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              We detected <span className="font-medium text-gray-700">{preview.total_rows}</span>{" "}
-              rows and <span className="font-medium text-gray-700">{preview.columns.length}</span>{" "}
+        <div className="card">
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="text-lg font-semibold text-text-primary">Column Mapping</h2>
+            <p className="mt-1 text-sm text-text-tertiary">
+              We detected <span className="font-medium text-text-secondary">{preview.total_rows}</span>{" "}
+              rows and <span className="font-medium text-text-secondary">{preview.columns.length}</span>{" "}
               columns. Review and adjust the mapping below.
             </p>
           </div>
 
           {/* Mapping table */}
           <div className="px-6 py-6">
-            <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600 border-b border-gray-200">
-                    <th className="px-4 py-3 font-medium">CSV Column</th>
-                    <th className="px-4 py-3 font-medium">Maps To</th>
-                    <th className="px-4 py-3 font-medium">Sample Values</th>
+                  <tr className="table-header">
+                    <th>CSV Column</th>
+                    <th>Maps To</th>
+                    <th>Sample Values</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-border-subtle">
                   {preview.columns.map((col) => {
                     const samples = preview.preview_rows
                       .slice(0, 3)
                       .map((row) => row[col])
                       .filter(Boolean);
                     return (
-                      <tr key={col} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-mono text-xs text-gray-900">
+                      <tr key={col} className="table-row">
+                        <td className="font-mono text-xs text-text-primary">
                           {col}
                         </td>
-                        <td className="px-4 py-3">
+                        <td>
                           <select
                             value={columnMapping[col] ?? ""}
                             onChange={(e) => updateMapping(col, e.target.value)}
-                            className="block w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="input block w-full"
                           >
                             <option value="">-- skip --</option>
                             {allTargetOptions.map((opt) => (
@@ -524,7 +522,7 @@ export default function UploadPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-500 truncate max-w-xs">
+                        <td className="text-xs text-text-tertiary truncate max-w-xs">
                           {samples.join(", ") || "--"}
                         </td>
                       </tr>
@@ -538,25 +536,25 @@ export default function UploadPage() {
           {/* Preview table */}
           {preview.preview_rows.length > 0 && (
             <div className="px-6 pb-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Data Preview</h3>
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <h3 className="text-sm font-semibold text-text-secondary mb-2">Data Preview</h3>
+              <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="bg-gray-50 text-left text-gray-600 border-b border-gray-200">
+                    <tr className="table-header">
                       {preview.columns.map((col) => (
-                        <th key={col} className="px-3 py-2 font-medium whitespace-nowrap">
+                        <th key={col} className="whitespace-nowrap">
                           {col}
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-border-subtle">
                     {preview.preview_rows.slice(0, 5).map((row, i) => (
-                      <tr key={i} className="hover:bg-gray-50">
+                      <tr key={i} className="table-row">
                         {preview.columns.map((col) => (
                           <td
                             key={col}
-                            className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-[200px] truncate"
+                            className="whitespace-nowrap max-w-[200px] truncate"
                           >
                             {row[col] ?? ""}
                           </td>
@@ -570,14 +568,14 @@ export default function UploadPage() {
           )}
 
           {/* Step 2 footer */}
-          <div className="flex justify-between border-t border-gray-200 px-6 py-4">
+          <div className="flex justify-between border-t border-border px-6 py-4">
             <button
               onClick={() => {
                 setStep(1);
                 setError(null);
               }}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+              className="btn-secondary"
             >
               <ArrowLeft className="h-4 w-4" />
               Back
@@ -586,10 +584,8 @@ export default function UploadPage() {
               onClick={submitStep2}
               disabled={loading}
               className={cn(
-                "inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors",
-                loading
-                  ? "cursor-not-allowed bg-blue-400"
-                  : "bg-blue-600 hover:bg-blue-700",
+                "btn-primary",
+                loading && "cursor-not-allowed opacity-60",
               )}
             >
               {loading ? (
@@ -612,27 +608,27 @@ export default function UploadPage() {
       {/*  STEP 3 - Ingest & Results                                         */}
       {/* ================================================================== */}
       {step === 3 && ingestResult && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-          <div className="border-b border-gray-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-gray-900">Ingest Complete</h2>
+        <div className="card">
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="text-lg font-semibold text-text-primary">Ingest Complete</h2>
           </div>
 
           <div className="px-6 py-8">
             <div className="mx-auto max-w-md text-center space-y-6">
               {/* Success icon */}
               <div className="flex justify-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                  <CheckCircle className="h-8 w-8 text-green-600" />
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-risk-low-bg">
+                  <CheckCircle className="h-8 w-8 text-risk-low" />
                 </div>
               </div>
 
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">
+                <h3 className="text-lg font-semibold text-text-primary">
                   Data Successfully Imported
                 </h3>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-text-tertiary">
                   Your claims data has been ingested into workspace{" "}
-                  <span className="font-mono font-medium text-gray-700">
+                  <span className="font-mono font-medium text-text-secondary">
                     {ingestResult.workspace_id}
                   </span>
                   .
@@ -641,38 +637,38 @@ export default function UploadPage() {
 
               {/* Stats */}
               <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-lg bg-gray-50 p-4">
-                  <p className="text-2xl font-bold text-gray-900">
+                <div className="rounded-lg bg-surface-page p-4">
+                  <p className="text-2xl font-bold text-text-primary">
                     {ingestResult.rows_imported.toLocaleString()}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">Rows Imported</p>
+                  <p className="text-xs text-text-tertiary mt-1">Rows Imported</p>
                 </div>
-                <div className="rounded-lg bg-gray-50 p-4">
-                  <p className="text-2xl font-bold text-gray-900">
+                <div className="rounded-lg bg-surface-page p-4">
+                  <p className="text-2xl font-bold text-text-primary">
                     {ingestResult.rows_skipped.toLocaleString()}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">Rows Skipped</p>
+                  <p className="text-xs text-text-tertiary mt-1">Rows Skipped</p>
                 </div>
-                <div className="rounded-lg bg-gray-50 p-4">
-                  <p className="text-2xl font-bold text-gray-900 capitalize">
+                <div className="rounded-lg bg-surface-page p-4">
+                  <p className="text-2xl font-bold text-text-primary capitalize">
                     {ingestResult.claim_type}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">Claim Type</p>
+                  <p className="text-xs text-text-tertiary mt-1">Claim Type</p>
                 </div>
               </div>
 
               {/* Errors */}
               {ingestResult.errors.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-left">
+                <div className="rounded-lg border border-risk-medium bg-risk-medium-bg p-4 text-left">
                   <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className="h-4 w-4 text-amber-600" />
-                    <span className="text-sm font-medium text-amber-800">
+                    <AlertCircle className="h-4 w-4 text-risk-medium" />
+                    <span className="text-sm font-medium text-risk-medium-text">
                       {ingestResult.errors.length} warning{ingestResult.errors.length !== 1 ? "s" : ""}
                     </span>
                   </div>
                   <ul className="space-y-1">
                     {ingestResult.errors.map((err, i) => (
-                      <li key={i} className="text-xs text-amber-700">
+                      <li key={i} className="text-xs text-risk-medium-text">
                         {err}
                       </li>
                     ))}
@@ -684,7 +680,7 @@ export default function UploadPage() {
               <div className="flex justify-center gap-3 pt-2">
                 <button
                   onClick={() => router.push("/claims")}
-                  className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+                  className="btn-primary"
                 >
                   View Claims
                   <ArrowRight className="h-4 w-4" />
@@ -704,7 +700,7 @@ export default function UploadPage() {
                     setIngestResult(null);
                     setError(null);
                   }}
-                  className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                  className="btn-secondary"
                 >
                   Upload Another
                 </button>

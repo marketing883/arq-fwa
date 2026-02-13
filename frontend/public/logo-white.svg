@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 32" fill="none">
+  <!-- Geometric A mark -->
+  <rect width="32" height="32" rx="8" fill="white" fill-opacity="0.12"/>
+  <path d="M16 6L26 26H6L16 6Z" fill="white" fill-opacity="0.95"/>
+  <!-- Lime dot -->
+  <circle cx="28" cy="6" r="4" fill="#C8E616"/>
+  <!-- ArqAI text -->
+  <text x="42" y="22" font-family="Inter, -apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="700" fill="white" letter-spacing="-0.5">Arq<tspan fill="white" opacity="0.7">AI</tspan></text>
+</svg>

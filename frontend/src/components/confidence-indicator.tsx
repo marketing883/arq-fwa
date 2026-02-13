@@ -18,10 +18,10 @@ const SIZE_MAP = {
 };
 
 function getColor(confidence: number): string {
-  if (confidence >= 0.8) return "#22c55e"; // green-500
-  if (confidence >= 0.6) return "#f59e0b"; // amber-500
-  if (confidence >= 0.4) return "#f97316"; // orange-500
-  return "#ef4444"; // red-500
+  if (confidence >= 0.8) return "#1CA855"; // risk-low
+  if (confidence >= 0.6) return "#E5A800"; // risk-medium
+  if (confidence >= 0.4) return "#ED6C02"; // risk-high
+  return "#E5243B"; // risk-critical
 }
 
 function getLabel(confidence: number): string {
@@ -32,17 +32,17 @@ function getLabel(confidence: number): string {
 }
 
 function getBgClass(confidence: number): string {
-  if (confidence >= 0.8) return "bg-green-50 border-green-200";
-  if (confidence >= 0.6) return "bg-amber-50 border-amber-200";
-  if (confidence >= 0.4) return "bg-orange-50 border-orange-200";
-  return "bg-red-50 border-red-200";
+  if (confidence >= 0.8) return "bg-risk-low-bg border-risk-low";
+  if (confidence >= 0.6) return "bg-risk-medium-bg border-risk-medium";
+  if (confidence >= 0.4) return "bg-risk-high-bg border-risk-high";
+  return "bg-risk-critical-bg border-risk-critical";
 }
 
 function getTextClass(confidence: number): string {
-  if (confidence >= 0.8) return "text-green-700";
-  if (confidence >= 0.6) return "text-amber-700";
-  if (confidence >= 0.4) return "text-orange-700";
-  return "text-red-700";
+  if (confidence >= 0.8) return "text-risk-low-text";
+  if (confidence >= 0.6) return "text-risk-medium-text";
+  if (confidence >= 0.4) return "text-risk-high-text";
+  return "text-risk-critical-text";
 }
 
 export function ConfidenceIndicator({
@@ -66,7 +66,7 @@ export function ConfidenceIndicator({
           cy={outer / 2}
           r={radius}
           fill="none"
-          stroke="#e5e7eb"
+          stroke="rgba(0,0,0,0.06)"
           strokeWidth={stroke}
         />
         {/* Progress arc */}
@@ -97,8 +97,8 @@ export function ConfidenceIndicator({
         </text>
       </svg>
       <span
-        className="text-center font-medium"
-        style={{ fontSize: labelSize, color: "#6b7280" }}
+        className="text-center font-medium text-text-tertiary"
+        style={{ fontSize: labelSize }}
       >
         {label}
       </span>

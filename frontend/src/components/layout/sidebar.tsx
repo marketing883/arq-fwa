@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -14,32 +15,51 @@ import {
   Building2,
   Play,
   Eye,
+  MessageSquare,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 import { useState, useRef, useEffect } from "react";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/claims", label: "Claims", icon: FileText },
-  { href: "/cases", label: "Cases", icon: Flag },
-  { href: "/rules", label: "Rules", icon: Settings },
-  { href: "/compliance", label: "Compliance", icon: Shield },
-  { href: "/governance", label: "AI Governance", icon: Eye },
-  { href: "/agents", label: "AI Assistant", icon: Bot },
-  { href: "/pipeline", label: "Pipeline", icon: Play },
-  { href: "/upload", label: "Upload Data", icon: Upload },
+const navGroups = [
+  {
+    label: "Overview",
+    items: [
+      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/claims", label: "Claims", icon: FileText },
+      { href: "/cases", label: "Cases", icon: Flag },
+    ],
+  },
+  {
+    label: "Investigation",
+    items: [
+      { href: "/rules", label: "Rules", icon: Settings },
+      { href: "/pipeline", label: "Pipeline", icon: Play },
+      { href: "/agents", label: "AI Assistant", icon: MessageSquare },
+    ],
+  },
+  {
+    label: "Compliance",
+    items: [
+      { href: "/compliance", label: "Audit Trail", icon: Shield },
+      { href: "/governance", label: "AI Governance", icon: Eye },
+      { href: "/upload", label: "Upload", icon: Upload },
+    ],
+  },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { workspaces, activeWorkspace, setActiveWorkspace, loading } = useWorkspace();
+  const { workspaces, activeWorkspace, setActiveWorkspace, loading } =
+    useWorkspace();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
         setDropdownOpen(false);
       }
     }
@@ -51,41 +71,59 @@ export function Sidebar() {
   const activeLabel = activeWs ? activeWs.name : "All Workspaces";
 
   return (
-    <aside className="w-64 bg-gray-900 text-white flex flex-col h-screen shrink-0">
-      <div className="p-5 border-b border-gray-700">
-        <h1 className="text-lg font-bold tracking-tight">ArqAI</h1>
-        <p className="text-xs text-gray-400 mt-0.5">
-          FWA Detection &amp; Prevention
-        </p>
+    <aside className="w-[252px] bg-surface-sidebar flex flex-col h-screen shrink-0 relative z-10">
+      {/* Right edge glow */}
+      <div
+        className="absolute top-0 right-0 w-px h-full pointer-events-none"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)",
+        }}
+      />
+
+      {/* Brand */}
+      <div className="px-5 pt-6 pb-5">
+        <div className="flex items-center gap-3">
+          <Image
+            src="/logo-white.svg"
+            alt="ArqAI"
+            width={140}
+            height={32}
+            className="h-8 w-auto"
+            priority
+          />
+        </div>
       </div>
 
       {/* Workspace Switcher */}
-      <div className="px-3 pt-4 pb-2" ref={dropdownRef}>
-        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider px-2 mb-1.5">
-          Workspace
-        </p>
+      <div className="px-3 mb-2" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen((o) => !o)}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-gray-800 hover:bg-gray-750 text-sm transition-colors text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-[12px] text-[12.5px] font-medium
+                     bg-white/[0.04] border border-white/[0.07] text-white/70
+                     hover:bg-white/[0.06] hover:border-white/10
+                     transition-all duration-200"
         >
-          <Building2 size={14} className="text-gray-400 shrink-0" />
-          <span className="flex-1 truncate text-gray-200">
-            {loading ? "Loading..." : activeLabel}
+          <span className="w-[7px] h-[7px] rounded-full bg-brand-lime shrink-0" style={{ boxShadow: '0 0 6px rgba(200,230,22,0.4)' }} />
+          <span className="flex-1 truncate text-left">
+            {loading ? "Loading\u2026" : activeLabel}
           </span>
           <ChevronDown
-            size={14}
-            className={`text-gray-500 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
+            size={12}
+            className={`text-white/35 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`}
           />
         </button>
         {dropdownOpen && !loading && (
-          <div className="mt-1 rounded-md bg-gray-800 border border-gray-700 shadow-lg py-1 max-h-60 overflow-y-auto z-50">
+          <div className="mt-1.5 rounded-[12px] bg-[#12121F] border border-white/[0.08] shadow-lg py-1 max-h-60 overflow-y-auto z-50">
             <button
               onClick={() => {
                 setActiveWorkspace(null);
                 setDropdownOpen(false);
               }}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 transition-colors ${
-                activeWorkspace === null ? "text-blue-400 font-medium" : "text-gray-300"
+              className={`w-full text-left px-3 py-2 text-[12.5px] hover:bg-white/[0.06] transition-colors ${
+                activeWorkspace === null
+                  ? "text-brand-blue font-medium"
+                  : "text-white/50"
               }`}
             >
               All Workspaces
@@ -97,15 +135,15 @@ export function Sidebar() {
                   setActiveWorkspace(ws.workspace_id);
                   setDropdownOpen(false);
                 }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 transition-colors ${
+                className={`w-full text-left px-3 py-2 text-[12.5px] hover:bg-white/[0.06] transition-colors ${
                   activeWorkspace === ws.workspace_id
-                    ? "text-blue-400 font-medium"
-                    : "text-gray-300"
+                    ? "text-brand-blue font-medium"
+                    : "text-white/50"
                 }`}
               >
                 <div className="truncate">{ws.name}</div>
                 {ws.client_name && (
-                  <div className="text-[10px] text-gray-500 truncate">
+                  <div className="text-[10px] text-white/25 truncate">
                     {ws.client_name}
                   </div>
                 )}
@@ -115,28 +153,64 @@ export function Sidebar() {
         )}
       </div>
 
-      <nav className="flex-1 py-2 overflow-y-auto">
-        {navItems.map(({ href, label, icon: Icon }) => {
-          const active =
-            href === "/" ? pathname === "/" : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 px-5 py-2.5 text-sm transition-colors ${
-                active
-                  ? "bg-primary-700 text-white"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
-              }`}
-            >
-              <Icon size={18} />
-              {label}
-            </Link>
-          );
-        })}
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto py-1">
+        {navGroups.map((group) => (
+          <div key={group.label} className="px-3 mb-1">
+            <div className="text-[10px] font-semibold text-white/20 uppercase tracking-[0.1em] px-3 pt-4 pb-1.5">
+              {group.label}
+            </div>
+            {group.items.map(({ href, label, icon: Icon }) => {
+              const active =
+                href === "/" ? pathname === "/" : pathname.startsWith(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-[8px] text-[13px] mb-px relative
+                    transition-all duration-[180ms] ${
+                      active
+                        ? "text-white bg-white/[0.09]"
+                        : "text-white/45 hover:text-white/75 hover:bg-white/[0.06]"
+                    }`}
+                  style={{ fontWeight: active ? 500 : 430 }}
+                >
+                  {active && (
+                    <span
+                      className="absolute -left-3 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-brand-lime"
+                      style={{
+                        boxShadow: "0 0 8px rgba(200,230,22,0.3)",
+                      }}
+                    />
+                  )}
+                  <Icon
+                    size={17}
+                    strokeWidth={1.7}
+                    className={`shrink-0 transition-opacity duration-[180ms] ${
+                      active ? "opacity-90" : "opacity-50"
+                    }`}
+                  />
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
-      <div className="p-4 border-t border-gray-700 text-xs text-gray-500">
-        v0.1.0 &middot; POC
+
+      {/* Footer */}
+      <div className="p-3">
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-[8px] bg-white/[0.04] border border-white/[0.07]">
+          <span
+            className="w-1.5 h-1.5 rounded-full bg-brand-lime animate-glow"
+          />
+          <span className="text-[11px] text-white/40" style={{ fontWeight: 430 }}>
+            All systems operational
+          </span>
+        </div>
+        <div className="text-[10px] text-white/15 px-3 pt-2" style={{ fontWeight: 430 }}>
+          v1.0 &middot; ArqAI Inc.
+        </div>
       </div>
     </aside>
   );

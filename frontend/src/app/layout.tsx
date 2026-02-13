@@ -18,7 +18,11 @@ export default function RootLayout({
       <body className="flex h-screen overflow-hidden">
         <WorkspaceProvider>
           <Sidebar />
-          <main className="flex-1 overflow-y-auto p-6">{children}</main>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <main className="flex-1 overflow-y-auto px-8 py-6">
+              {children}
+            </main>
+          </div>
         </WorkspaceProvider>
       </body>
     </html>

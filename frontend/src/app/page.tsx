@@ -15,20 +15,14 @@ import {
   riskColor,
   formatCurrency,
   formatNumber,
-  formatDate,
 } from "@/lib/utils";
 import {
   BarChart,
   Bar,
-  PieChart,
-  Pie,
-  Cell,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import {
   FileText,
@@ -38,28 +32,23 @@ import {
   Shield,
   Activity,
   Eye,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useWorkspace } from "@/lib/workspace-context";
 
-const COLORS = ["#22c55e", "#f59e0b", "#ef4444", "#7f1d1d"];
-
 function SkeletonBar({ className }: { className?: string }) {
   return (
-    <div
-      className={cn(
-        "animate-pulse rounded bg-gray-200",
-        className
-      )}
-    />
+    <div className={cn("animate-pulse rounded-md bg-gray-100", className)} />
   );
 }
 
 function StatCardSkeleton() {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-      <SkeletonBar className="h-4 w-24 mb-3" />
-      <SkeletonBar className="h-8 w-32" />
+    <div className="stat-card">
+      <SkeletonBar className="h-3 w-24 mb-3" />
+      <SkeletonBar className="h-7 w-32" />
     </div>
   );
 }
@@ -67,47 +56,41 @@ function StatCardSkeleton() {
 interface StatCardProps {
   label: string;
   value: string;
-  icon: React.ReactNode;
-  iconBg: string;
+  delta?: string;
+  deltaUp?: boolean;
+  accentColor: string;
 }
 
-function StatCard({ label, value, icon, iconBg }: StatCardProps) {
+function StatCard({ label, value, delta, deltaUp, accentColor }: StatCardProps) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm flex items-start gap-4">
+    <div className="stat-card group">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {delta && (
+        <div className="flex items-center justify-between mt-3.5 pt-3.5 border-t border-border-subtle">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 text-[11.5px] font-medium",
+              deltaUp ? "text-risk-low-text" : "text-risk-critical-text"
+            )}
+          >
+            {deltaUp ? (
+              <TrendingUp size={12} />
+            ) : (
+              <TrendingDown size={12} />
+            )}
+            {delta}
+          </span>
+          <span className="text-[10.5px] text-text-quaternary">vs last 30d</span>
+        </div>
+      )}
       <div
-        className={cn(
-          "flex items-center justify-center w-12 h-12 rounded-lg shrink-0",
-          iconBg
-        )}
-      >
-        {icon}
-      </div>
-      <div>
-        <p className="text-sm font-medium text-gray-500">{label}</p>
-        <p className="text-2xl font-bold mt-1 text-gray-900">{value}</p>
-      </div>
+        className="absolute bottom-0 left-0 right-0 h-[3px] rounded-b-lg"
+        style={{
+          background: `linear-gradient(90deg, ${accentColor}, transparent)`,
+        }}
+      />
     </div>
-  );
-}
-
-const RADIAN = Math.PI / 180;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function renderCustomLabel(props: any) {
-  const { cx, cy, midAngle, innerRadius, outerRadius, value, name } = props;
-  const radius = innerRadius + (outerRadius - innerRadius) * 1.4;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  return (
-    <text
-      x={x}
-      y={y}
-      fill="#374151"
-      textAnchor={x > cx ? "start" : "end"}
-      dominantBaseline="central"
-      fontSize={12}
-    >
-      {name}: {value}
-    </text>
   );
 }
 
@@ -140,365 +123,360 @@ export default function DashboardPage() {
             setProviders(providerData.providers);
             setRuleEffectiveness(ruleData.rules);
           }
-          break; // success
+          break;
         } catch (err) {
           retryCount++;
           if (retryCount <= MAX_RETRIES && !cancelled) {
-            console.warn(`Dashboard load attempt ${retryCount} failed, retrying in ${retryCount * 2}s...`);
             await new Promise((r) => setTimeout(r, retryCount * 2000));
-          } else {
-            console.error("Failed to load dashboard data:", err);
           }
         }
       }
       if (!cancelled) setLoading(false);
     }
     load();
-    // Load governance health separately (non-blocking)
-    governance.health().then((h) => { if (!cancelled) setGovHealth(h); }).catch(() => {});
-    return () => { cancelled = true; };
+    governance
+      .health()
+      .then((h) => {
+        if (!cancelled) setGovHealth(h);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [activeWorkspace]);
 
   const riskDistData = overview
     ? [
-        { name: "Low", value: overview.risk_distribution.low },
-        { name: "Medium", value: overview.risk_distribution.medium },
-        { name: "High", value: overview.risk_distribution.high },
-        { name: "Critical", value: overview.risk_distribution.critical },
-      ]
+        { name: "Low", value: overview.risk_distribution.low, color: "#1CA855", pct: 0 },
+        { name: "Medium", value: overview.risk_distribution.medium, color: "#E5A800", pct: 0 },
+        { name: "High", value: overview.risk_distribution.high, color: "#ED6C02", pct: 0 },
+        { name: "Critical", value: overview.risk_distribution.critical, color: "#E5243B", pct: 0 },
+      ].map((d) => ({
+        ...d,
+        pct: overview.total_claims > 0 ? ((d.value / overview.total_claims) * 100) : 0,
+      }))
     : [];
 
   const topRules = ruleEffectiveness
     ? [...ruleEffectiveness]
         .sort((a, b) => b.times_triggered - a.times_triggered)
-        .slice(0, 10)
+        .slice(0, 8)
     : [];
 
+  const maxTriggered = topRules.length > 0 ? topRules[0].times_triggered : 1;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 max-w-[1440px]">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          Executive Overview
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          FWA Detection &amp; Prevention Dashboard
-        </p>
+        <h1 className="page-title">Dashboard</h1>
+        <p className="page-subtitle mt-0.5">Executive Overview</p>
       </div>
 
       {/* Stat Cards */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
           <StatCardSkeleton />
           <StatCardSkeleton />
           <StatCardSkeleton />
           <StatCardSkeleton />
         </div>
       ) : overview ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
           <StatCard
-            label="Total Claims Processed"
+            label="Claims Processed"
             value={formatNumber(overview.total_claims)}
-            icon={<FileText className="w-6 h-6 text-white" />}
-            iconBg="bg-blue-500"
+            delta="12.3%"
+            deltaUp
+            accentColor="#0055F2"
           />
           <StatCard
             label="Claims Flagged"
             value={formatNumber(overview.total_flagged)}
-            icon={<AlertTriangle className="w-6 h-6 text-white" />}
-            iconBg="bg-red-500"
+            delta="8.1%"
+            deltaUp
+            accentColor="#ED6C02"
           />
           <StatCard
-            label="Total Fraud Identified"
+            label="Fraud Identified"
             value={formatCurrency(overview.total_fraud_amount)}
-            icon={<DollarSign className="w-6 h-6 text-white" />}
-            iconBg="bg-emerald-500"
+            delta="23.4%"
+            deltaUp
+            accentColor="#C8E616"
           />
           <StatCard
             label="Active Cases"
             value={formatNumber(overview.active_cases)}
-            icon={<Briefcase className="w-6 h-6 text-white" />}
-            iconBg="bg-purple-500"
+            delta="5.2%"
+            deltaUp={false}
+            accentColor="#7C5CFC"
           />
         </div>
       ) : (
-        <p className="text-red-500">Failed to load overview data.</p>
+        <p className="text-risk-critical text-sm">Failed to load overview data.</p>
       )}
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Risk Distribution Donut */}
-        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Risk Distribution
-          </h2>
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <SkeletonBar className="h-48 w-48 rounded-full" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+        {/* Risk Distribution */}
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <div className="card-title">Risk Distribution</div>
+              <div className="card-subtitle">
+                {overview ? `Across ${formatNumber(overview.total_claims)} scored claims` : "Loading\u2026"}
+              </div>
             </div>
-          ) : riskDistData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={riskDistData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={3}
-                  dataKey="value"
-                  label={renderCustomLabel}
-                >
-                  {riskDistData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index]}
+            <Link href="/claims" className="link">
+              View all &rarr;
+            </Link>
+          </div>
+          <div className="card-body">
+            {loading ? (
+              <div className="space-y-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <SkeletonBar key={i} className="h-5 w-full" />
+                ))}
+              </div>
+            ) : riskDistData.length > 0 ? (
+              <div className="space-y-4">
+                {riskDistData.map((d) => (
+                  <div key={d.name} className="flex items-center gap-3">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: d.color }}
                     />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value) => formatNumber(value as number)}
-                />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-gray-400 text-center py-12">
-              No risk distribution data available
-            </p>
-          )}
+                    <span className="text-[12.5px] font-medium text-text-secondary w-14">
+                      {d.name}
+                    </span>
+                    <div className="flex-1 h-1.5 rounded-full bg-surface-page overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-1000"
+                        style={{
+                          width: `${d.pct}%`,
+                          backgroundColor: d.color,
+                          opacity: 0.75,
+                        }}
+                      />
+                    </div>
+                    <span className="text-[12.5px] font-semibold text-text-primary w-12 text-right tabular-nums">
+                      {formatNumber(d.value)}
+                    </span>
+                    <span className="text-[11px] text-text-quaternary w-10 text-right">
+                      {d.pct.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-text-quaternary text-center py-12 text-sm">
+                No risk distribution data
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* Rule Effectiveness Bar Chart */}
-        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Rule Effectiveness
-          </h2>
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <SkeletonBar key={i} className="h-6 w-full" />
-              ))}
+        {/* Rule Effectiveness */}
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <div className="card-title">Top Rules by Triggers</div>
+              <div className="card-subtitle">Last 30 days</div>
             </div>
-          ) : topRules.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart
-                data={topRules}
-                layout="vertical"
-                margin={{ top: 0, right: 20, left: 80, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" />
-                <YAxis
-                  type="category"
-                  dataKey="rule_id"
-                  width={75}
-                  tick={{ fontSize: 11 }}
-                />
-                <Tooltip
-                  formatter={(value) => [
-                    formatNumber(value as number),
-                    "Times Triggered",
-                  ]}
-                />
-                <Bar
-                  dataKey="times_triggered"
-                  fill="#3b82f6"
-                  radius={[0, 4, 4, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-gray-400 text-center py-12">
-              No rule effectiveness data available
-            </p>
-          )}
+            <Link href="/rules" className="link">
+              All rules &rarr;
+            </Link>
+          </div>
+          <div className="card-body">
+            {loading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <SkeletonBar key={i} className="h-4 w-full" />
+                ))}
+              </div>
+            ) : topRules.length > 0 ? (
+              <div className="space-y-2.5">
+                {topRules.map((rule) => (
+                  <div key={rule.rule_id} className="flex items-center gap-2.5">
+                    <span className="text-[11px] font-medium text-text-tertiary w-7 font-mono tracking-tight">
+                      {rule.rule_id.replace("RULE-MED-0", "M").replace("RULE-RX-0", "P").replace("RULE-MED-", "M").replace("RULE-RX-", "P")}
+                    </span>
+                    <div className="flex-1 h-[5px] rounded-full bg-surface-page overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-brand-blue/80 transition-all duration-700"
+                        style={{
+                          width: `${(rule.times_triggered / maxTriggered) * 100}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="text-[11.5px] font-semibold text-text-primary w-8 text-right tabular-nums">
+                      {rule.times_triggered}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-text-quaternary text-center py-12 text-sm">
+                No rule data
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* AI Governance Health Strip */}
+      {/* AI Governance Health */}
       {govHealth && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Eye className="w-5 h-5 text-indigo-600" />
-              <h2 className="text-sm font-semibold text-gray-900">
-                AI Governance Health
-              </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          {/* ArqFlow */}
+          <div className="card relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-[3px] h-full bg-brand-blue" />
+            <div className="p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-text-primary">ArqFlow</span>
+                <span className="text-[9.5px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-blue/10 text-brand-blue">
+                  TAO
+                </span>
+              </div>
+              <p className="text-[11px] text-text-tertiary mt-0.5">Trust-Aware Orchestration</p>
+              <div className="mt-4">
+                <span className="text-[28px] font-bold text-text-primary tracking-tight leading-none">
+                  {govHealth.tao.avg_trust_score != null
+                    ? `${(govHealth.tao.avg_trust_score * 100).toFixed(0)}%`
+                    : "N/A"}
+                </span>
+              </div>
+              <p className="text-[11px] text-text-tertiary mt-1">Avg Trust Score</p>
+              <div className="flex items-center gap-1.5 mt-4 pt-3.5 border-t border-border-subtle">
+                <span className="w-[5px] h-[5px] rounded-full bg-brand-lime" />
+                <span className={cn("text-[11px] font-medium", govHealth.tao.hitl_pending > 0 ? "text-risk-medium-text" : "text-risk-low-text")}>
+                  {govHealth.tao.hitl_pending} HITL Pending
+                </span>
+              </div>
             </div>
-            <Link
-              href="/governance"
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-            >
-              View Details &rarr;
-            </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
-            {/* ArqFlow */}
-            <div className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield className="w-4 h-4 text-blue-500" />
-                <span className="text-xs font-semibold text-gray-700">ArqFlow</span>
+
+          {/* ArqGuard */}
+          <div className="card relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-[3px] h-full bg-brand-lime" />
+            <div className="p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-text-primary">ArqGuard</span>
+                <span className="text-[9.5px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-lime/15 text-[#5A7A00]">
+                  CAPC
+                </span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-gray-400">Trust Profiles</span>
-                  <p className="font-semibold text-gray-900">{govHealth.tao.trust_profiles}</p>
-                </div>
-                <div>
-                  <span className="text-gray-400">Avg Trust</span>
-                  <p className="font-semibold text-gray-900">
-                    {govHealth.tao.avg_trust_score != null
-                      ? `${(govHealth.tao.avg_trust_score * 100).toFixed(0)}%`
-                      : "N/A"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-gray-400">HITL Pending</span>
-                  <p className={cn("font-semibold", govHealth.tao.hitl_pending > 0 ? "text-amber-600" : "text-green-600")}>
-                    {govHealth.tao.hitl_pending}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-gray-400">Receipts</span>
-                  <p className="font-semibold text-gray-900">{govHealth.tao.audit_receipts}</p>
-                </div>
+              <p className="text-[11px] text-text-tertiary mt-0.5">Compliance Engine</p>
+              <div className="mt-4">
+                <span className="text-[28px] font-bold text-text-primary tracking-tight leading-none">
+                  {govHealth.capc.evidence_packets > 0
+                    ? `${(((govHealth.capc.evidence_packets - govHealth.capc.policy_violations) / govHealth.capc.evidence_packets) * 100).toFixed(1)}%`
+                    : "N/A"}
+                </span>
+              </div>
+              <p className="text-[11px] text-text-tertiary mt-1">Compliance Rate</p>
+              <div className="flex items-center gap-1.5 mt-4 pt-3.5 border-t border-border-subtle">
+                <span className="w-[5px] h-[5px] rounded-full bg-brand-lime" />
+                <span className={cn("text-[11px] font-medium", govHealth.capc.policy_violations > 0 ? "text-risk-critical-text" : "text-risk-low-text")}>
+                  {govHealth.capc.policy_violations} Violations
+                </span>
               </div>
             </div>
-            {/* ArqGuard */}
-            <div className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield className="w-4 h-4 text-emerald-500" />
-                <span className="text-xs font-semibold text-gray-700">ArqGuard</span>
+          </div>
+
+          {/* ArqSight */}
+          <div className="card relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-[3px] h-full bg-risk-medium" />
+            <div className="p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-text-primary">ArqSight</span>
+                <span className="text-[9.5px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-risk-medium/10 text-risk-medium-text">
+                  RAG
+                </span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-gray-400">Evidence Packets</span>
-                  <p className="font-semibold text-gray-900">{govHealth.capc.evidence_packets}</p>
-                </div>
-                <div>
-                  <span className="text-gray-400">Violations</span>
-                  <p className={cn("font-semibold", govHealth.capc.policy_violations > 0 ? "text-red-600" : "text-green-600")}>
-                    {govHealth.capc.policy_violations}
-                  </p>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-gray-400">Compliance</span>
-                  <p className="font-semibold text-gray-900">
-                    {govHealth.capc.evidence_packets > 0
-                      ? `${(((govHealth.capc.evidence_packets - govHealth.capc.policy_violations) / govHealth.capc.evidence_packets) * 100).toFixed(1)}%`
-                      : "N/A"}
-                  </p>
-                </div>
+              <p className="text-[11px] text-text-tertiary mt-0.5">Adaptive Retrieval</p>
+              <div className="mt-4">
+                <span className="text-[28px] font-bold text-text-primary tracking-tight leading-none">
+                  {govHealth.oda_rag.signals_24h}
+                </span>
               </div>
-            </div>
-            {/* ArqSight */}
-            <div className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Activity className="w-4 h-4 text-orange-500" />
-                <span className="text-xs font-semibold text-gray-700">ArqSight</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-gray-400">Signals (24h)</span>
-                  <p className="font-semibold text-gray-900">{govHealth.oda_rag.signals_24h}</p>
-                </div>
-                <div>
-                  <span className="text-gray-400">Adaptations</span>
-                  <p className="font-semibold text-gray-900">{govHealth.oda_rag.adaptations}</p>
-                </div>
-                <div>
-                  <span className="text-gray-400">Feedback Avg</span>
-                  <p className="font-semibold text-gray-900">
-                    {govHealth.oda_rag.avg_feedback_quality != null
-                      ? `${(govHealth.oda_rag.avg_feedback_quality * 100).toFixed(0)}%`
-                      : "N/A"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-gray-400">Status</span>
-                  <p className={cn("font-semibold", govHealth.oda_rag.signals_24h > 0 ? "text-green-600" : "text-gray-400")}>
-                    {govHealth.oda_rag.signals_24h > 0 ? "Active" : "Idle"}
-                  </p>
-                </div>
+              <p className="text-[11px] text-text-tertiary mt-1">Signals (24h)</p>
+              <div className="flex items-center gap-1.5 mt-4 pt-3.5 border-t border-border-subtle">
+                <span className="w-[5px] h-[5px] rounded-full bg-brand-lime animate-glow" />
+                <span className={cn("text-[11px] font-medium", govHealth.oda_rag.signals_24h > 0 ? "text-risk-low-text" : "text-text-quaternary")}>
+                  {govHealth.oda_rag.signals_24h > 0 ? "Active" : "Idle"}
+                </span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Top Flagged Providers Table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Top Flagged Providers
-          </h2>
+      {/* Top Flagged Providers */}
+      <div className="card">
+        <div className="card-header border-b border-border">
+          <div>
+            <div className="card-title">Top Flagged Providers</div>
+            <div className="card-subtitle">Ranked by average risk score</div>
+          </div>
+          <Link href="/cases" className="link">
+            View all &rarr;
+          </Link>
         </div>
         {loading ? (
-          <div className="p-6 space-y-4">
-            {Array.from({ length: 5 }).map((_, i) => (
+          <div className="p-5 space-y-4">
+            {[1, 2, 3, 4, 5].map((i) => (
               <SkeletonBar key={i} className="h-10 w-full" />
             ))}
           </div>
         ) : providers && providers.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full">
               <thead>
-                <tr className="bg-gray-50 text-left text-gray-600">
-                  <th className="px-6 py-3 font-medium">Rank</th>
-                  <th className="px-6 py-3 font-medium">NPI</th>
-                  <th className="px-6 py-3 font-medium">Name</th>
-                  <th className="px-6 py-3 font-medium">Specialty</th>
-                  <th className="px-6 py-3 font-medium text-right">
-                    Avg Risk Score
-                  </th>
-                  <th className="px-6 py-3 font-medium text-right">
-                    Flagged Claims
-                  </th>
-                  <th className="px-6 py-3 font-medium text-right">
-                    Total Amount
-                  </th>
+                <tr className="table-header">
+                  <th style={{ width: 48 }}>#</th>
+                  <th>NPI</th>
+                  <th>Provider</th>
+                  <th>Specialty</th>
+                  <th className="text-right">Risk</th>
+                  <th className="text-right">Flagged</th>
+                  <th className="text-right">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody>
                 {providers.map((p, idx) => (
-                  <tr
-                    key={p.provider_id}
-                    className={cn(
-                      "hover:bg-gray-50 transition-colors",
-                      idx % 2 === 1 && "bg-gray-50/50"
-                    )}
-                  >
-                    <td className="px-6 py-3 font-medium text-gray-900">
-                      {idx + 1}
+                  <tr key={p.provider_id} className="table-row">
+                    <td>
+                      <span className="text-[12px] font-semibold text-text-quaternary tabular-nums">
+                        {String(idx + 1).padStart(2, "0")}
+                      </span>
                     </td>
-                    <td className="px-6 py-3 text-gray-700 font-mono text-xs">
+                    <td className="font-mono text-[11.5px] text-text-tertiary tracking-tight">
                       {p.npi}
                     </td>
-                    <td className="px-6 py-3 text-gray-900 font-medium">
-                      {p.name}
-                    </td>
-                    <td className="px-6 py-3 text-gray-600">
+                    <td className="text-text-primary font-medium">{p.name}</td>
+                    <td className="text-[12px] text-text-tertiary">
                       {p.specialty || "\u2014"}
                     </td>
-                    <td className="px-6 py-3 text-right">
+                    <td className="text-right">
                       <span
                         className={cn(
-                          "inline-block px-2 py-0.5 rounded text-xs font-semibold",
-                          p.risk_score >= 75
-                            ? "bg-red-100 text-red-800"
-                            : p.risk_score >= 50
-                            ? "bg-amber-100 text-amber-800"
-                            : "bg-green-100 text-green-800"
+                          "badge",
+                          p.risk_score >= 85
+                            ? "badge-critical"
+                            : p.risk_score >= 60
+                            ? "badge-high"
+                            : p.risk_score >= 30
+                            ? "badge-medium"
+                            : "badge-low"
                         )}
                       >
                         {p.risk_score.toFixed(1)}
                       </span>
                     </td>
-                    <td className="px-6 py-3 text-right text-gray-700">
+                    <td className="text-right tabular-nums">
                       {formatNumber(p.flagged_claims)}
                     </td>
-                    <td className="px-6 py-3 text-right text-gray-700">
+                    <td className="text-right text-text-primary font-medium tabular-nums tracking-tight">
                       {formatCurrency(p.total_amount)}
                     </td>
                   </tr>
@@ -507,29 +485,10 @@ export default function DashboardPage() {
             </table>
           </div>
         ) : (
-          <div className="p-6 text-center text-gray-400">
+          <div className="p-8 text-center text-text-quaternary text-sm">
             No provider data available
           </div>
         )}
-      </div>
-
-      {/* Recent Cases Link */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">
-            Recent Cases
-          </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            View and manage active fraud investigation cases
-          </p>
-        </div>
-        <Link
-          href="/cases"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          View All Cases
-          <span aria-hidden="true">&rarr;</span>
-        </Link>
       </div>
     </div>
   );

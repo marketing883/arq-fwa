@@ -53,7 +53,7 @@ export default function CaseDetailPage() {
           try {
             const claimData = await claims.detail(data.claim_id);
             if (claimData.provider_npi) setProviderNpi(claimData.provider_npi);
-          } catch { /* ignore — peer comparison just won't be available */ }
+          } catch { /* ignore -- peer comparison just won't be available */ }
         }
       })
       .catch((err) => setError(err.message))
@@ -135,14 +135,14 @@ export default function CaseDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-gray-500 text-lg">Loading case...</div>
+        <div className="text-text-tertiary text-lg">Loading case...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
+      <div className="bg-risk-critical-bg border border-risk-critical rounded-lg p-6 text-risk-critical-text">
         <h2 className="font-semibold text-lg mb-2">Error loading case</h2>
         <p>{error}</p>
       </div>
@@ -182,10 +182,10 @@ export default function CaseDetailPage() {
   return (
     <div>
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-        <a href="/cases" className="hover:text-blue-600">Investigation Queue</a>
+      <div className="flex items-center gap-2 text-sm text-text-tertiary mb-4">
+        <a href="/cases" className="hover:text-brand-blue">Investigation Queue</a>
         <ChevronRight className="w-4 h-4" />
-        <span className="text-gray-900 font-medium">{caseData.case_id}</span>
+        <span className="text-text-primary font-medium">{caseData.case_id}</span>
       </div>
 
       {/* Two-column layout */}
@@ -193,22 +193,22 @@ export default function CaseDetailPage() {
         {/* ===== LEFT COLUMN (3/5) ===== */}
         <div className="lg:col-span-3 space-y-6">
           {/* Case Header */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+          <div className="card p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold mb-2">{caseData.case_id}</h1>
+                <h1 className="text-[15px] font-semibold text-text-primary tracking-tight mb-2">{caseData.case_id}</h1>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={cn("px-2.5 py-1 rounded-full text-xs font-medium", statusColor(caseData.status))}>
+                  <span className={cn("badge", statusColor(caseData.status))}>
                     {caseData.status.replace("_", " ")}
                   </span>
-                  <span className={cn("px-2.5 py-1 rounded-full text-xs font-medium", priorityColor(caseData.priority))}>
+                  <span className={cn("badge", priorityColor(caseData.priority))}>
                     {caseData.priority || "No Priority"}
                   </span>
-                  <span className="text-sm text-gray-500 capitalize">{caseData.claim_type}</span>
+                  <span className="text-sm text-text-tertiary capitalize">{caseData.claim_type}</span>
                 </div>
               </div>
               <div className="text-center">
-                <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Risk Score</div>
+                <div className="section-label mb-1">Risk Score</div>
                 <div
                   className={cn(
                     "text-3xl font-bold px-4 py-2 rounded-lg",
@@ -217,13 +217,13 @@ export default function CaseDetailPage() {
                 >
                   {caseData.risk_score.toFixed(1)}
                 </div>
-                <div className="text-xs mt-1 capitalize text-gray-600">{caseData.risk_level}</div>
+                <div className="text-xs mt-1 capitalize text-text-tertiary">{caseData.risk_level}</div>
               </div>
             </div>
             {caseData.assigned_to && (
-              <div className="mt-4 flex items-center gap-2 text-sm text-gray-600">
+              <div className="mt-4 flex items-center gap-2 text-sm text-text-tertiary">
                 <User className="w-4 h-4" />
-                Assigned to: <span className="font-medium">{caseData.assigned_to}</span>
+                Assigned to: <span className="font-medium text-text-primary">{caseData.assigned_to}</span>
               </div>
             )}
             {caseData.sla_deadline && (
@@ -231,14 +231,14 @@ export default function CaseDetailPage() {
                 className={cn(
                   "mt-2 flex items-center gap-2 text-sm",
                   new Date(caseData.sla_deadline) < new Date()
-                    ? "text-red-600 font-semibold"
-                    : "text-gray-600"
+                    ? "text-risk-critical-text font-semibold"
+                    : "text-text-tertiary"
                 )}
               >
                 <Clock className="w-4 h-4" />
                 SLA Deadline: {formatDateTime(caseData.sla_deadline)}
                 {new Date(caseData.sla_deadline) < new Date() && (
-                  <span className="ml-1 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                  <span className="ml-1 text-xs bg-risk-critical-bg text-risk-critical-text px-2 py-0.5 rounded-full">
                     OVERDUE
                   </span>
                 )}
@@ -248,63 +248,63 @@ export default function CaseDetailPage() {
 
           {/* Claim Summary */}
           {caseData.claim && (
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-gray-500" />
+            <div className="card p-6">
+              <h2 className="card-title mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-text-tertiary" />
                 Claim Summary
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-500">Claim ID</span>
-                  <p className="font-medium">{caseData.claim.claim_id}</p>
+                  <span className="text-text-tertiary">Claim ID</span>
+                  <p className="font-medium text-text-primary">{caseData.claim.claim_id}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Type</span>
-                  <p className="font-medium capitalize">{caseData.claim.claim_type}</p>
+                  <span className="text-text-tertiary">Type</span>
+                  <p className="font-medium text-text-primary capitalize">{caseData.claim.claim_type}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Member ID</span>
-                  <p className="font-medium">{caseData.claim.member_id}</p>
+                  <span className="text-text-tertiary">Member ID</span>
+                  <p className="font-medium text-text-primary">{caseData.claim.member_id}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Provider ID</span>
-                  <p className="font-medium">{caseData.claim.provider_id ?? "—"}</p>
+                  <span className="text-text-tertiary">Provider ID</span>
+                  <p className="font-medium text-text-primary">{caseData.claim.provider_id ?? "\u2014"}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Service Date</span>
-                  <p className="font-medium">{formatDate(caseData.claim.service_date)}</p>
+                  <span className="text-text-tertiary">Service Date</span>
+                  <p className="font-medium text-text-primary">{formatDate(caseData.claim.service_date)}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Fill Date</span>
-                  <p className="font-medium">{formatDate(caseData.claim.fill_date)}</p>
+                  <span className="text-text-tertiary">Fill Date</span>
+                  <p className="font-medium text-text-primary">{formatDate(caseData.claim.fill_date)}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Amount Billed</span>
-                  <p className="font-medium">{formatCurrency(caseData.claim.amount_billed)}</p>
+                  <span className="text-text-tertiary">Amount Billed</span>
+                  <p className="font-medium text-text-primary">{formatCurrency(caseData.claim.amount_billed)}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Amount Paid</span>
-                  <p className="font-medium">{formatCurrency(caseData.claim.amount_paid)}</p>
+                  <span className="text-text-tertiary">Amount Paid</span>
+                  <p className="font-medium text-text-primary">{formatCurrency(caseData.claim.amount_paid)}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Status</span>
-                  <p className="font-medium capitalize">{caseData.claim.status}</p>
+                  <span className="text-text-tertiary">Status</span>
+                  <p className="font-medium text-text-primary capitalize">{caseData.claim.status}</p>
                 </div>
                 {caseData.claim.pharmacy_id && (
                   <div>
-                    <span className="text-gray-500">Pharmacy ID</span>
-                    <p className="font-medium">{caseData.claim.pharmacy_id}</p>
+                    <span className="text-text-tertiary">Pharmacy ID</span>
+                    <p className="font-medium text-text-primary">{caseData.claim.pharmacy_id}</p>
                   </div>
                 )}
                 <div>
-                  <span className="text-gray-500">Rules Triggered</span>
-                  <p className="font-medium">{caseData.claim.rules_triggered}</p>
+                  <span className="text-text-tertiary">Rules Triggered</span>
+                  <p className="font-medium text-text-primary">{caseData.claim.rules_triggered}</p>
                 </div>
                 {caseData.claim.risk_level && (
                   <div>
-                    <span className="text-gray-500">Risk Level</span>
+                    <span className="text-text-tertiary">Risk Level</span>
                     <p>
-                      <span className={cn("px-2 py-0.5 rounded-full text-xs font-medium capitalize", riskColor(caseData.claim.risk_level))}>
+                      <span className={cn("badge capitalize", riskColor(caseData.claim.risk_level))}>
                         {caseData.claim.risk_level}
                       </span>
                     </p>
@@ -315,9 +315,9 @@ export default function CaseDetailPage() {
           )}
 
           {/* Transparency Tabs */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+          <div className="card">
             {/* Tab bar */}
-            <div className="flex border-b border-gray-200">
+            <div className="flex border-b border-border">
               {[
                 { key: "rules" as const, label: "Rules Triggered", icon: <AlertTriangle className="w-4 h-4" /> },
                 { key: "trace" as const, label: "Rule Trace", icon: <FileText className="w-4 h-4" /> },
@@ -327,10 +327,8 @@ export default function CaseDetailPage() {
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
                   className={cn(
-                    "flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px",
-                    activeTab === tab.key
-                      ? "border-blue-600 text-blue-600"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    "tab flex items-center gap-2",
+                    activeTab === tab.key && "tab-active"
                   )}
                 >
                   {tab.icon}
@@ -344,7 +342,7 @@ export default function CaseDetailPage() {
               {activeTab === "rules" && (
                 <>
                   {caseData.rule_results.length === 0 ? (
-                    <p className="text-gray-500 text-sm">No rules triggered for this case.</p>
+                    <p className="text-text-tertiary text-sm">No rules triggered for this case.</p>
                   ) : (
                     <div className="space-y-3">
                       {caseData.rule_results
@@ -352,12 +350,12 @@ export default function CaseDetailPage() {
                         .map((rule) => (
                           <div
                             key={rule.rule_id}
-                            className="border border-gray-200 rounded-lg p-4"
+                            className="border border-border rounded-lg p-4"
                           >
                             <div className="flex items-start justify-between gap-4">
                               <div className="flex-1">
                                 <div className="flex items-center gap-3 mb-2">
-                                  <span className="font-mono text-sm font-semibold text-gray-900">
+                                  <span className="font-mono text-sm font-semibold text-text-primary">
                                     {rule.rule_id}
                                   </span>
                                   {rule.confidence != null && (
@@ -367,30 +365,30 @@ export default function CaseDetailPage() {
                                 {rule.severity != null && (
                                   <div className="mb-2">
                                     <div className="flex items-center gap-2">
-                                      <span className="text-xs text-gray-500 w-16">Severity</span>
-                                      <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-xs">
+                                      <span className="text-xs text-text-tertiary w-16">Severity</span>
+                                      <div className="flex-1 bg-border rounded-full h-2 max-w-xs">
                                         <div
                                           className={cn(
                                             "h-2 rounded-full",
                                             rule.severity >= 2.5
-                                              ? "bg-red-500"
+                                              ? "bg-risk-critical"
                                               : rule.severity >= 1.5
-                                              ? "bg-amber-500"
-                                              : "bg-green-500"
+                                              ? "bg-risk-medium"
+                                              : "bg-risk-low"
                                           )}
                                           style={{
                                             width: `${Math.min(100, (rule.severity / 3.0) * 100)}%`,
                                           }}
                                         />
                                       </div>
-                                      <span className="text-xs font-mono text-gray-600 w-8">
+                                      <span className="text-xs font-mono text-text-tertiary w-8">
                                         {rule.severity.toFixed(1)}
                                       </span>
                                     </div>
                                   </div>
                                 )}
                                 {rule.details && (
-                                  <p className="text-sm text-gray-600 mb-2">{rule.details}</p>
+                                  <p className="text-sm text-text-tertiary mb-2">{rule.details}</p>
                                 )}
                               </div>
                             </div>
@@ -398,7 +396,7 @@ export default function CaseDetailPage() {
                               <div>
                                 <button
                                   onClick={() => toggleRuleEvidence(rule.rule_id)}
-                                  className="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-1"
+                                  className="text-xs text-brand-blue hover:underline flex items-center gap-1 mt-1"
                                 >
                                   <ChevronRight
                                     className={cn(
@@ -409,7 +407,7 @@ export default function CaseDetailPage() {
                                   {expandedRules.has(rule.rule_id) ? "Hide" : "Show"} Evidence
                                 </button>
                                 {expandedRules.has(rule.rule_id) && (
-                                  <pre className="mt-2 bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto max-h-60">
+                                  <pre className="mt-2 bg-surface-page border border-border rounded-md p-3 text-xs overflow-x-auto max-h-60 font-mono">
                                     {JSON.stringify(rule.evidence, null, 2)}
                                   </pre>
                                 )}
@@ -437,8 +435,8 @@ export default function CaseDetailPage() {
 
           {/* Overall Confidence */}
           {caseData.rule_results.filter(r => r.triggered && r.confidence != null).length > 0 && (
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-              <h2 className="text-lg font-semibold mb-4">Detection Confidence</h2>
+            <div className="card p-6">
+              <h2 className="card-title mb-4">Detection Confidence</h2>
               <div className="flex items-center gap-8 flex-wrap">
                 {caseData.rule_results
                   .filter(r => r.triggered && r.confidence != null)
@@ -460,14 +458,14 @@ export default function CaseDetailPage() {
         {/* ===== RIGHT COLUMN (2/5) ===== */}
         <div className="lg:col-span-2 space-y-6">
           {/* Actions Panel */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+          <div className="card p-6">
+            <h3 className="section-label mb-4">
               Actions
             </h3>
 
             {/* Status buttons */}
             <div className="mb-4">
-              <label className="text-sm font-medium text-gray-700 block mb-2">Update Status</label>
+              <label className="text-sm font-medium text-text-secondary block mb-2">Update Status</label>
               <div className="flex flex-wrap gap-1.5">
                 {STATUS_OPTIONS.map((s) => (
                   <button
@@ -477,8 +475,8 @@ export default function CaseDetailPage() {
                     className={cn(
                       "px-3 py-1.5 text-xs rounded-md transition-colors font-medium",
                       caseData.status === s
-                        ? "bg-blue-600 text-white cursor-default"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200",
+                        ? "bg-brand-blue text-white cursor-default"
+                        : "bg-surface-page text-text-secondary hover:bg-border",
                       actionLoading && "opacity-50 cursor-not-allowed"
                     )}
                   >
@@ -490,14 +488,14 @@ export default function CaseDetailPage() {
 
             {/* Assign */}
             <div>
-              <label className="text-sm font-medium text-gray-700 block mb-2">Assign To</label>
+              <label className="text-sm font-medium text-text-secondary block mb-2">Assign To</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={assignInput}
                   onChange={(e) => setAssignInput(e.target.value)}
                   placeholder="Enter assignee name"
-                  className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="input flex-1"
                 />
                 <button
                   onClick={handleAssign}
@@ -505,8 +503,8 @@ export default function CaseDetailPage() {
                   className={cn(
                     "px-4 py-2 text-sm rounded-md font-medium transition-colors",
                     actionLoading || !assignInput.trim()
-                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                      : "bg-blue-600 text-white hover:bg-blue-700"
+                      ? "bg-surface-page text-text-quaternary cursor-not-allowed"
+                      : "btn-primary"
                   )}
                 >
                   Assign
@@ -516,29 +514,29 @@ export default function CaseDetailPage() {
           </div>
 
           {/* Timeline */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+          <div className="card p-6">
+            <h3 className="section-label mb-4">
               Timeline
             </h3>
             {timelineEntries.length === 0 ? (
-              <p className="text-gray-500 text-sm">No timeline events.</p>
+              <p className="text-text-tertiary text-sm">No timeline events.</p>
             ) : (
               <div className="space-y-0">
                 {timelineEntries.map((entry, idx) => (
                   <div key={idx} className="flex gap-3 pb-4 relative">
                     {/* Vertical line */}
                     {idx < timelineEntries.length - 1 && (
-                      <div className="absolute left-[11px] top-6 bottom-0 w-px bg-gray-200" />
+                      <div className="absolute left-[11px] top-6 bottom-0 w-px bg-border" />
                     )}
-                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 z-10">
+                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-surface-page flex items-center justify-center text-text-tertiary z-10">
                       {entry.icon}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900">{entry.label}</p>
+                      <p className="text-sm font-medium text-text-primary">{entry.label}</p>
                       {entry.detail && (
-                        <p className="text-sm text-gray-600 mt-0.5 break-words">{entry.detail}</p>
+                        <p className="text-sm text-text-tertiary mt-0.5 break-words">{entry.detail}</p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1">{formatDateTime(entry.time)}</p>
+                      <p className="text-xs text-text-quaternary mt-1">{formatDateTime(entry.time)}</p>
                     </div>
                   </div>
                 ))}
@@ -547,8 +545,8 @@ export default function CaseDetailPage() {
           </div>
 
           {/* Add Note */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+          <div className="card p-6">
+            <h3 className="section-label mb-4">
               Add Note
             </h3>
             <textarea
@@ -556,7 +554,7 @@ export default function CaseDetailPage() {
               onChange={(e) => setNoteContent(e.target.value)}
               rows={3}
               placeholder="Enter investigation notes..."
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              className="input w-full resize-none"
             />
             <button
               onClick={handleAddNote}
@@ -564,8 +562,8 @@ export default function CaseDetailPage() {
               className={cn(
                 "mt-2 w-full px-4 py-2 text-sm rounded-md font-medium transition-colors",
                 actionLoading || !noteContent.trim()
-                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
+                  ? "bg-surface-page text-text-quaternary cursor-not-allowed"
+                  : "btn-primary"
               )}
             >
               Add Note
@@ -573,18 +571,18 @@ export default function CaseDetailPage() {
           </div>
 
           {/* Evidence Bundle */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+          <div className="card p-6">
+            <h3 className="section-label mb-4">
               Evidence Bundle
             </h3>
             <button
               onClick={handleViewEvidence}
-              className="w-full px-4 py-2 text-sm rounded-md font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+              className="btn-secondary w-full"
             >
               {evidenceOpen ? "Hide Evidence" : "View Evidence"}
             </button>
             {evidenceOpen && evidenceData && (
-              <pre className="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs overflow-x-auto max-h-96">
+              <pre className="mt-3 bg-surface-page border border-border rounded-lg p-4 text-xs overflow-x-auto max-h-96 font-mono">
                 {JSON.stringify(evidenceData, null, 2)}
               </pre>
             )}
