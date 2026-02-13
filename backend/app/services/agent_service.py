@@ -114,13 +114,14 @@ Available tools (respond with EXACTLY this JSON format to use one):
   → Returns: total claims (medical/pharmacy), case counts, active cases, risk breakdown by level.
 
 {"tool": "query_cases", "args": {"risk_level": "critical", "status": "open", "limit": 10, "sort_by": "risk_score"}}
-  → Returns: cases with financial data (amount_billed, amount_paid, savings, estimated_fraud, recovery).
-  → Filters: risk_level (critical/high/medium/low), status (open/under_review/escalated/resolved/closed).
-  → Sort: "risk_score" (default), "savings", "amount_billed", "estimated_fraud".
+  → Returns: cases with financial data (amount_billed, amount_paid, savings_prevented, fraud_identified, recovery).
+  → fraud_identified = amount_billed if risk is high/critical, else 0 (matches dashboard "Total Fraud Identified").
+  → Filters: risk_level, status. Sort: "risk_score" (default).
 
 {"tool": "query_cases_financial", "args": {"min_savings": 1000, "min_fraud_amount": 0, "risk_level": "critical", "status": "open", "limit": 50}}
-  → Returns: per-case financial detail (case_id, claim_id, amount_billed, amount_paid, savings, estimated_fraud, recovery, risk_level, status).
-  → Use this for ANY per-case financial question: "how many cases saved > $X", "which cases have highest savings", "total prevented per case", etc.
+  → Returns: per-case financial detail (case_id, amount_billed, amount_paid, savings_prevented, fraud_identified, recovery, risk_level, status).
+  → fraud_identified = amount_billed if high/critical risk (matches dashboard "Total Fraud Identified").
+  → Use this for ANY per-case financial question: "how many cases saved > $X", "which cases have highest fraud", etc.
   → All filter args are optional. Default limit=50.
 
 {"tool": "query_claims_analysis", "args": {"group_by": "risk_level", "min_amount": 0, "claim_type": "medical"}}
@@ -139,7 +140,8 @@ Available tools (respond with EXACTLY this JSON format to use one):
   → Returns: provider name, specialty, OIG exclusion status, active status.
 
 {"tool": "query_financial_summary"}
-  → Returns: AGGREGATE totals — flagged claims count, total billed/paid/prevented, estimated fraud, recovered, breakdowns by risk level and status.
+  → Returns: AGGREGATE totals — total_fraud_identified (amount_billed on high+critical claims, matches dashboard),
+    flagged claims count, total billed/paid/prevented, recovered, breakdowns by risk level with fraud_amount per level.
   → Use for overall financial summaries. For per-case details, use query_cases_financial instead.
 """
 
@@ -458,9 +460,9 @@ class AgentService:
             q = q.where(InvestigationCase.workspace_id == ws)
 
         sort_col = {
-            "savings": InvestigationCase.estimated_fraud_amount,
-            "amount_billed": InvestigationCase.estimated_fraud_amount,
-            "estimated_fraud": InvestigationCase.estimated_fraud_amount,
+            "savings": InvestigationCase.risk_score,       # proxy — actual savings computed in-loop
+            "amount_billed": InvestigationCase.risk_score,  # proxy
+            "fraud_identified": InvestigationCase.risk_score,
         }.get(args.get("sort_by", ""), InvestigationCase.risk_score)
         q = q.order_by(sort_col.desc().nullslast()).limit(args.get("limit", 10))
 
@@ -483,6 +485,8 @@ class AgentService:
                     billed, paid = float(rx_row.billed), float(rx_row.paid)
 
             savings = billed - paid
+            # Fraud identified = amount_billed if high/critical (matches dashboard)
+            fraud_identified = billed if c.risk_level in ("high", "critical") else 0.0
             cases.append({
                 "case_id": c.case_id, "claim_id": c.claim_id,
                 "risk_score": float(c.risk_score), "risk_level": c.risk_level,
@@ -490,7 +494,7 @@ class AgentService:
                 "amount_billed": round(billed, 2),
                 "amount_paid": round(paid, 2),
                 "savings_prevented": round(savings, 2),
-                "estimated_fraud_amount": float(c.estimated_fraud_amount) if c.estimated_fraud_amount else 0.0,
+                "fraud_identified": round(fraud_identified, 2),
                 "recovery_amount": float(c.recovery_amount) if c.recovery_amount else 0.0,
             })
         return json.dumps({"count": len(cases), "cases": cases})
@@ -517,102 +521,157 @@ class AgentService:
                            "is_active": prov.is_active, "oig_excluded": prov.oig_excluded})
 
     async def _tool_financial_summary(self) -> str:
-        """Aggregate financial data across all flagged claims and investigation cases."""
+        """Aggregate financial data — matches dashboard calculations exactly."""
         ws = self.workspace_id
 
-        # --- Flagged medical claims (those with investigation cases) ---
-        med_q = (
+        # --- Total claims ---
+        med_cnt_q = select(func.count()).select_from(MedicalClaim)
+        rx_cnt_q = select(func.count()).select_from(PharmacyClaim)
+        if ws is not None:
+            med_cnt_q = med_cnt_q.where(MedicalClaim.workspace_id == ws)
+            rx_cnt_q = rx_cnt_q.where(PharmacyClaim.workspace_id == ws)
+        total_medical = int((await self.session.execute(med_cnt_q)).scalar() or 0)
+        total_pharmacy = int((await self.session.execute(rx_cnt_q)).scalar() or 0)
+
+        # --- Total flagged (risk_level != 'low') ---
+        flagged_q = select(func.count()).select_from(RiskScore).where(RiskScore.risk_level != "low")
+        if ws is not None:
+            flagged_q = flagged_q.where(RiskScore.workspace_id == ws)
+        total_flagged = int((await self.session.execute(flagged_q)).scalar() or 0)
+
+        # --- Total Fraud Identified = SUM(amount_billed) for high/critical risk claims ---
+        # This matches the dashboard formula EXACTLY
+        risk_subq = select(RiskScore.claim_id).where(
+            RiskScore.risk_level.in_(["high", "critical"])
+        )
+        if ws is not None:
+            risk_subq = risk_subq.where(RiskScore.workspace_id == ws)
+
+        med_fraud_q = select(
+            func.coalesce(func.sum(MedicalClaim.amount_billed), 0)
+        ).where(MedicalClaim.claim_id.in_(risk_subq))
+        rx_fraud_q = select(
+            func.coalesce(func.sum(PharmacyClaim.amount_billed), 0)
+        ).where(PharmacyClaim.claim_id.in_(risk_subq))
+        if ws is not None:
+            med_fraud_q = med_fraud_q.where(MedicalClaim.workspace_id == ws)
+            rx_fraud_q = rx_fraud_q.where(PharmacyClaim.workspace_id == ws)
+
+        med_fraud = float((await self.session.execute(med_fraud_q)).scalar() or 0)
+        rx_fraud = float((await self.session.execute(rx_fraud_q)).scalar() or 0)
+        total_fraud_identified = med_fraud + rx_fraud
+
+        # --- Amounts on ALL flagged claims (those with investigation cases) ---
+        med_flagged_q = (
             select(
                 func.count().label("count"),
                 func.coalesce(func.sum(MedicalClaim.amount_billed), 0).label("billed"),
-                func.coalesce(func.sum(MedicalClaim.amount_allowed), 0).label("allowed"),
                 func.coalesce(func.sum(MedicalClaim.amount_paid), 0).label("paid"),
             )
             .select_from(MedicalClaim)
             .join(InvestigationCase, InvestigationCase.claim_id == MedicalClaim.claim_id)
         )
-        if ws is not None:
-            med_q = med_q.where(MedicalClaim.workspace_id == ws)
-        med = (await self.session.execute(med_q)).first()
-
-        # --- Flagged pharmacy claims ---
-        rx_q = (
+        rx_flagged_q = (
             select(
                 func.count().label("count"),
                 func.coalesce(func.sum(PharmacyClaim.amount_billed), 0).label("billed"),
-                func.coalesce(func.sum(PharmacyClaim.amount_allowed), 0).label("allowed"),
                 func.coalesce(func.sum(PharmacyClaim.amount_paid), 0).label("paid"),
             )
             .select_from(PharmacyClaim)
             .join(InvestigationCase, InvestigationCase.claim_id == PharmacyClaim.claim_id)
         )
         if ws is not None:
-            rx_q = rx_q.where(PharmacyClaim.workspace_id == ws)
-        rx = (await self.session.execute(rx_q)).first()
+            med_flagged_q = med_flagged_q.where(MedicalClaim.workspace_id == ws)
+            rx_flagged_q = rx_flagged_q.where(PharmacyClaim.workspace_id == ws)
+        med_f = (await self.session.execute(med_flagged_q)).first()
+        rx_f = (await self.session.execute(rx_flagged_q)).first()
 
-        flagged_billed = float(med.billed) + float(rx.billed)
-        flagged_paid = float(med.paid) + float(rx.paid)
-        flagged_count = int(med.count) + int(rx.count)
+        flagged_billed = float(med_f.billed) + float(rx_f.billed)
+        flagged_paid = float(med_f.paid) + float(rx_f.paid)
+        flagged_claim_count = int(med_f.count) + int(rx_f.count)
         amount_prevented = flagged_billed - flagged_paid
 
-        # --- Case-level aggregates (estimated fraud, recovery) ---
-        case_q = select(
-            func.count().label("total"),
-            func.coalesce(func.sum(InvestigationCase.estimated_fraud_amount), 0).label("est_fraud"),
-            func.coalesce(func.sum(InvestigationCase.recovery_amount), 0).label("recovered"),
+        # --- Active cases ---
+        active_q = select(func.count()).select_from(InvestigationCase).where(
+            InvestigationCase.status.in_(["open", "under_review", "escalated"])
+        )
+        if ws is not None:
+            active_q = active_q.where(InvestigationCase.workspace_id == ws)
+        active_cases = int((await self.session.execute(active_q)).scalar() or 0)
+
+        # --- Recovery ---
+        recovery_q = select(
+            func.coalesce(func.sum(InvestigationCase.recovery_amount), 0)
         ).select_from(InvestigationCase)
         if ws is not None:
-            case_q = case_q.where(InvestigationCase.workspace_id == ws)
-        case_agg = (await self.session.execute(case_q)).first()
+            recovery_q = recovery_q.where(InvestigationCase.workspace_id == ws)
+        total_recovered = float((await self.session.execute(recovery_q)).scalar() or 0)
 
-        # --- Breakdown by risk level ---
+        # --- Breakdown by risk level (fraud = amount_billed for that level's claims) ---
         risk_fin = {}
         for level in ("critical", "high", "medium", "low"):
-            rq = (
-                select(
-                    func.count().label("count"),
-                    func.coalesce(func.sum(InvestigationCase.estimated_fraud_amount), 0).label("est"),
-                )
-                .select_from(InvestigationCase)
-                .where(InvestigationCase.risk_level == level)
-            )
+            level_subq = select(RiskScore.claim_id).where(RiskScore.risk_level == level)
             if ws is not None:
-                rq = rq.where(InvestigationCase.workspace_id == ws)
-            r = (await self.session.execute(rq)).first()
-            risk_fin[level] = {"cases": int(r.count), "estimated_fraud": float(r.est)}
+                level_subq = level_subq.where(RiskScore.workspace_id == ws)
+
+            level_cnt = int((await self.session.execute(
+                select(func.count()).select_from(InvestigationCase).where(
+                    InvestigationCase.risk_level == level
+                ) if ws is None else
+                select(func.count()).select_from(InvestigationCase).where(
+                    InvestigationCase.risk_level == level,
+                    InvestigationCase.workspace_id == ws,
+                )
+            )).scalar() or 0)
+
+            # Fraud amount for this level = sum of amount_billed on claims at this risk level
+            level_med_fraud = float((await self.session.execute(
+                select(func.coalesce(func.sum(MedicalClaim.amount_billed), 0))
+                .where(MedicalClaim.claim_id.in_(level_subq))
+            )).scalar() or 0)
+            level_rx_fraud = float((await self.session.execute(
+                select(func.coalesce(func.sum(PharmacyClaim.amount_billed), 0))
+                .where(PharmacyClaim.claim_id.in_(level_subq))
+            )).scalar() or 0)
+
+            risk_fin[level] = {
+                "cases": level_cnt,
+                "fraud_amount": round(level_med_fraud + level_rx_fraud, 2),
+            }
 
         # --- Breakdown by status ---
         status_fin = {}
         for st in ("open", "under_review", "escalated", "resolved", "closed"):
-            sq = (
-                select(
-                    func.count().label("count"),
-                    func.coalesce(func.sum(InvestigationCase.estimated_fraud_amount), 0).label("est"),
-                    func.coalesce(func.sum(InvestigationCase.recovery_amount), 0).label("rec"),
-                )
-                .select_from(InvestigationCase)
-                .where(InvestigationCase.status == st)
-            )
+            sq = select(func.count()).select_from(InvestigationCase).where(InvestigationCase.status == st)
             if ws is not None:
                 sq = sq.where(InvestigationCase.workspace_id == ws)
-            s = (await self.session.execute(sq)).first()
-            if int(s.count) > 0:
-                status_fin[st] = {"cases": int(s.count), "estimated_fraud": float(s.est),
-                                  "recovered": float(s.rec)}
+            cnt = int((await self.session.execute(sq)).scalar() or 0)
+            if cnt > 0:
+                status_fin[st] = {"cases": cnt}
 
         return json.dumps({
-            "flagged_claims": flagged_count,
-            "total_amount_billed_on_flagged": flagged_billed,
-            "total_amount_paid_on_flagged": flagged_paid,
-            "amount_prevented_billed_minus_paid": amount_prevented,
-            "total_estimated_fraud": float(case_agg.est_fraud),
-            "total_recovered": float(case_agg.recovered),
+            "total_claims": total_medical + total_pharmacy,
+            "total_medical_claims": total_medical,
+            "total_pharmacy_claims": total_pharmacy,
+            "total_flagged_claims": total_flagged,
+            "total_fraud_identified": round(total_fraud_identified, 2),
+            "total_fraud_identified_note": "SUM of amount_billed on all high+critical risk claims",
+            "flagged_claims_with_cases": flagged_claim_count,
+            "total_amount_billed_on_flagged": round(flagged_billed, 2),
+            "total_amount_paid_on_flagged": round(flagged_paid, 2),
+            "amount_prevented_billed_minus_paid": round(amount_prevented, 2),
+            "total_recovered": round(total_recovered, 2),
+            "active_cases": active_cases,
             "by_risk_level": risk_fin,
             "by_status": status_fin,
         })
 
     async def _tool_cases_financial(self, args: dict) -> str:
-        """Per-case financial breakdown with filtering — the key tool for financial questions."""
+        """Per-case financial breakdown with filtering — matches dashboard calculations.
+
+        Fraud identified per case = amount_billed if risk_level is high/critical (dashboard formula).
+        Savings per case = amount_billed - amount_paid.
+        """
         ws = self.workspace_id
         min_savings = float(args.get("min_savings", 0))
         min_fraud = float(args.get("min_fraud_amount", 0))
@@ -624,8 +683,6 @@ class AgentService:
             q = q.where(InvestigationCase.risk_level == args["risk_level"])
         if args.get("status"):
             q = q.where(InvestigationCase.status == args["status"])
-        if min_fraud > 0:
-            q = q.where(InvestigationCase.estimated_fraud_amount >= min_fraud)
         if ws is not None:
             q = q.where(InvestigationCase.workspace_id == ws)
         q = q.order_by(InvestigationCase.risk_score.desc()).limit(500)  # wide fetch for filtering
@@ -653,7 +710,12 @@ class AgentService:
                     paid = float(rx.amount_paid) if rx.amount_paid else 0.0
 
             savings = billed - paid
+            # Fraud identified = amount_billed if high/critical risk (matches dashboard)
+            fraud_identified = billed if c.risk_level in ("high", "critical") else 0.0
+
             if savings < min_savings:
+                continue
+            if min_fraud > 0 and fraud_identified < min_fraud:
                 continue
 
             rows.append({
@@ -666,7 +728,7 @@ class AgentService:
                 "amount_billed": round(billed, 2),
                 "amount_paid": round(paid, 2),
                 "savings_prevented": round(savings, 2),
-                "estimated_fraud_amount": float(c.estimated_fraud_amount) if c.estimated_fraud_amount else 0.0,
+                "fraud_identified": round(fraud_identified, 2),
                 "recovery_amount": float(c.recovery_amount) if c.recovery_amount else 0.0,
             })
 
@@ -676,13 +738,13 @@ class AgentService:
 
         # Compute summary stats
         total_savings = sum(r["savings_prevented"] for r in rows)
-        total_fraud = sum(r["estimated_fraud_amount"] for r in rows)
+        total_fraud = sum(r["fraud_identified"] for r in rows)
         total_recovery = sum(r["recovery_amount"] for r in rows)
 
         return json.dumps({
             "matching_cases": len(rows),
             "total_savings_across_matches": round(total_savings, 2),
-            "total_estimated_fraud_across_matches": round(total_fraud, 2),
+            "total_fraud_identified_across_matches": round(total_fraud, 2),
             "total_recovery_across_matches": round(total_recovery, 2),
             "filter_applied": {
                 "min_savings": min_savings,
@@ -1301,6 +1363,13 @@ class AgentService:
             system_prompt = (
                 "You are an expert AI investigation assistant for the ArqAI FWA (Fraud, Waste, Abuse) detection platform.\n"
                 "You have FULL access to the platform's live database through tools. You are intelligent, thorough, and precise.\n\n"
+                "CRITICAL DEFINITIONS (these match the dashboard exactly):\n"
+                "- 'Fraud Identified' or 'Total Fraud' = SUM of amount_billed on claims with HIGH or CRITICAL risk level.\n"
+                "  This is the total dollar exposure from high-risk claims. The tool data field is 'total_fraud_identified' or 'fraud_identified'.\n"
+                "- 'Savings' or 'Amount Prevented' = amount_billed - amount_paid (money NOT paid out because claims were flagged).\n"
+                "  The tool data field is 'savings_prevented' or 'amount_prevented_billed_minus_paid'.\n"
+                "- 'Flagged' = claims with risk_level != 'low' (i.e., medium, high, or critical).\n"
+                "- 'Recovery' = money actually recovered from resolved fraud cases.\n\n"
                 "ABSOLUTE RULES:\n"
                 "1. NEVER say 'I don't have access to' or 'I can't' — you HAVE tools to query ANY data in the platform.\n"
                 "   If data is not in the context below, USE A TOOL to get it. That is what tools are for.\n"
@@ -1309,14 +1378,13 @@ class AgentService:
                 "4. For analytical breakdowns (by provider, CPT, risk level), use query_claims_analysis.\n"
                 "5. Think step by step. Show your reasoning and calculations explicitly.\n"
                 "6. Always quote exact dollar amounts and counts from tool results — never estimate or round unless asked.\n"
-                "7. For 'savings' or 'prevention': savings = amount_billed - amount_paid (money NOT paid because claims were flagged).\n"
-                "8. Use markdown formatting: bold key numbers, use tables for multi-row data, headers for sections.\n"
-                "9. Reference case IDs and rule IDs exactly as they appear in data.\n"
-                "10. CRITICAL: Respect the caller's access tier. If data is marked [RESTRICTED] or [REQUIRES COMPLIANCE ACCESS], "
+                "7. Use markdown formatting: bold key numbers, use tables for multi-row data, headers for sections.\n"
+                "8. Reference case IDs and rule IDs exactly as they appear in data.\n"
+                "9. CRITICAL: Respect the caller's access tier. If data is marked [RESTRICTED] or [REQUIRES COMPLIANCE ACCESS], "
                 "inform the user they need elevated permissions — but never claim YOU lack access.\n\n"
                 "WHEN TO USE EACH TOOL:\n"
                 "- 'how many cases...' with financial condition → query_cases_financial\n"
-                "- 'total saved/prevented/recovered' → query_financial_summary\n"
+                "- 'total fraud/saved/prevented/recovered' → query_financial_summary\n"
                 "- 'which providers/CPT codes/drugs...' → query_claims_analysis\n"
                 "- 'show top/list cases' → query_cases\n"
                 "- 'tell me about CASE-XXXX' → query_case_detail\n"
@@ -1617,37 +1685,43 @@ class AgentService:
             fin = redact_financial_for_tier(fin, self._max_tier)
         sources.append("database:financial-summary")
 
-        flagged = fin["flagged_claims"]
-        billed = fin["total_amount_billed_on_flagged"]
-        paid = fin["total_amount_paid_on_flagged"]
-        prevented = fin["amount_prevented_billed_minus_paid"]
-        est_fraud = fin["total_estimated_fraud"]
-        recovered = fin["total_recovered"]
+        total_claims = fin.get("total_claims", 0)
+        flagged = fin.get("total_flagged_claims", 0)
+        fraud_identified = fin.get("total_fraud_identified", 0)
+        billed = fin.get("total_amount_billed_on_flagged", 0)
+        paid = fin.get("total_amount_paid_on_flagged", 0)
+        prevented = fin.get("amount_prevented_billed_minus_paid", 0)
+        recovered = fin.get("total_recovered", 0)
+        active_cases = fin.get("active_cases", 0)
 
         lines = ["**Financial Impact Summary**\n"]
-        lines.append(f"| Metric | Amount |")
-        lines.append(f"|---|---|")
-        lines.append(f"| Flagged claims | **{flagged:,}** |")
+        lines.append("| Metric | Value |")
+        lines.append("|---|---|")
+        lines.append(f"| Total claims processed | **{total_claims:,}** |")
+        lines.append(f"| Flagged claims (medium+ risk) | **{flagged:,}** |")
+        lines.append(f"| **Total Fraud Identified** | **${fraud_identified:,.2f}** |")
         lines.append(f"| Total billed on flagged | **${billed:,.2f}** |")
         lines.append(f"| Total paid on flagged | **${paid:,.2f}** |")
-        lines.append(f"| **Amount prevented (billed - paid)** | **${prevented:,.2f}** |")
-        lines.append(f"| Estimated fraud amount | **${est_fraud:,.2f}** |")
-        lines.append(f"| Recovered amount | **${recovered:,.2f}** |")
+        lines.append(f"| **Amount Prevented (billed - paid)** | **${prevented:,.2f}** |")
+        lines.append(f"| Amount Recovered | **${recovered:,.2f}** |")
+        lines.append(f"| Active Cases | **{active_cases:,}** |")
 
         risk = fin.get("by_risk_level", {})
-        if any(v.get("estimated_fraud", 0) > 0 for v in risk.values()):
-            lines.append(f"\n**By risk level:**")
+        if risk:
+            lines.append(f"\n**Fraud by risk level:**")
             for level in ("critical", "high", "medium", "low"):
                 r = risk.get(level, {})
                 if r.get("cases", 0) > 0:
-                    lines.append(f"- {level.upper()}: {r['cases']} cases, ${r.get('estimated_fraud', 0):,.2f} est. fraud")
+                    lines.append(
+                        f"- **{level.upper()}**: {r['cases']} cases, "
+                        f"**${r.get('fraud_amount', 0):,.2f}** fraud identified"
+                    )
 
         status = fin.get("by_status", {})
         if status:
-            lines.append(f"\n**By status:**")
+            lines.append(f"\n**Cases by status:**")
             for st, s in status.items():
-                rec = f", ${s['recovered']:,.2f} recovered" if s.get("recovered", 0) > 0 else ""
-                lines.append(f"- {st}: {s['cases']} cases, ${s.get('estimated_fraud', 0):,.2f} est. fraud{rec}")
+                lines.append(f"- {st}: {s['cases']} cases")
 
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
@@ -1676,19 +1750,22 @@ class AgentService:
 
         count = data.get("matching_cases", 0)
         total_savings = data.get("total_savings_across_matches", 0)
+        total_fraud = data.get("total_fraud_identified_across_matches", 0)
         cases_list = data.get("cases", [])
 
         lines = [f"**{count} case(s)** with savings/prevention greater than **${threshold:,.2f}**\n"]
-        lines.append(f"**Total savings across these cases:** **${total_savings:,.2f}**\n")
+        lines.append(f"**Total savings across these cases:** **${total_savings:,.2f}**")
+        lines.append(f"**Total fraud identified across these cases:** **${total_fraud:,.2f}**\n")
 
         if cases_list:
-            lines.append("| Case ID | Risk | Billed | Paid | Savings | Status |")
-            lines.append("|---------|------|--------|------|---------|--------|")
+            lines.append("| Case ID | Risk | Billed | Paid | Savings | Fraud ID | Status |")
+            lines.append("|---------|------|--------|------|---------|----------|--------|")
             for c in cases_list[:15]:  # Show top 15
                 lines.append(
                     f"| {c['case_id']} | {c['risk_level']} | "
                     f"${c['amount_billed']:,.2f} | ${c['amount_paid']:,.2f} | "
-                    f"**${c['savings_prevented']:,.2f}** | {c['status']} |"
+                    f"**${c['savings_prevented']:,.2f}** | "
+                    f"${c.get('fraud_identified', 0):,.2f} | {c['status']} |"
                 )
             if len(cases_list) > 15:
                 lines.append(f"\n*...and {len(cases_list) - 15} more cases*")
