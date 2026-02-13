@@ -49,6 +49,8 @@ TOOL_SENSITIVITY: dict[str, Sensitivity] = {
     "query_rules": Sensitivity.INTERNAL,
     "query_provider": Sensitivity.INTERNAL,
     "query_financial_summary": Sensitivity.RESTRICTED,
+    "query_cases_financial": Sensitivity.RESTRICTED,
+    "query_claims_analysis": Sensitivity.RESTRICTED,
 }
 
 
@@ -58,6 +60,8 @@ CONTEXT_SENSITIVITY: dict[str, Sensitivity] = {
     "top-cases": Sensitivity.INTERNAL,             # case IDs + risk levels
     "rule-stats": Sensitivity.INTERNAL,            # rule trigger counts
     "financial-summary": Sensitivity.RESTRICTED,   # dollar amounts
+    "per-case-financial": Sensitivity.RESTRICTED,  # per-case financial data
+    "claims-analysis": Sensitivity.RESTRICTED,     # claim-level aggregation
     "case-detail": Sensitivity.INTERNAL,           # case context
     "claim-amounts": Sensitivity.SENSITIVE,        # individual claim $
     "member-pii": Sensitivity.SENSITIVE,           # member names, DOB

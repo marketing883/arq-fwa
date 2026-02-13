@@ -109,12 +109,38 @@ def linkify_citations(text: str) -> str:
 
 TOOL_DEFINITIONS = """
 Available tools (respond with EXACTLY this JSON format to use one):
-{"tool": "query_pipeline_stats"} - Get claim counts, case counts, risk breakdown
-{"tool": "query_cases", "args": {"risk_level": "critical", "status": "open", "limit": 10}}
+
+{"tool": "query_pipeline_stats"}
+  → Returns: total claims (medical/pharmacy), case counts, active cases, risk breakdown by level.
+
+{"tool": "query_cases", "args": {"risk_level": "critical", "status": "open", "limit": 10, "sort_by": "risk_score"}}
+  → Returns: cases with financial data (amount_billed, amount_paid, savings, estimated_fraud, recovery).
+  → Filters: risk_level (critical/high/medium/low), status (open/under_review/escalated/resolved/closed).
+  → Sort: "risk_score" (default), "savings", "amount_billed", "estimated_fraud".
+
+{"tool": "query_cases_financial", "args": {"min_savings": 1000, "min_fraud_amount": 0, "risk_level": "critical", "status": "open", "limit": 50}}
+  → Returns: per-case financial detail (case_id, claim_id, amount_billed, amount_paid, savings, estimated_fraud, recovery, risk_level, status).
+  → Use this for ANY per-case financial question: "how many cases saved > $X", "which cases have highest savings", "total prevented per case", etc.
+  → All filter args are optional. Default limit=50.
+
+{"tool": "query_claims_analysis", "args": {"group_by": "risk_level", "min_amount": 0, "claim_type": "medical"}}
+  → Returns: aggregated claim-level analysis grouped by a dimension.
+  → group_by: "risk_level", "status", "provider", "cpt_code", "drug_name", "claim_type".
+  → Filters: min_amount (billed), claim_type ("medical"/"pharmacy").
+  → Use for analytical breakdowns: "which providers have highest billing", "breakdown by risk level", etc.
+
 {"tool": "query_case_detail", "args": {"case_id": "CASE-XXXXXX"}}
+  → Returns: full case context — claim details, provider, triggered rules, risk score breakdown.
+
 {"tool": "query_rules", "args": {"triggered_only": true, "limit": 10}}
+  → Returns: top-triggered rules with occurrence counts, category, and description.
+
 {"tool": "query_provider", "args": {"npi": "1234567890"}}
-{"tool": "query_financial_summary"} - Get total amounts billed, paid, saved, recovered, and fraud estimates across all flagged claims and cases
+  → Returns: provider name, specialty, OIG exclusion status, active status.
+
+{"tool": "query_financial_summary"}
+  → Returns: AGGREGATE totals — flagged claims count, total billed/paid/prevented, estimated fraud, recovered, breakdowns by risk level and status.
+  → Use for overall financial summaries. For per-case details, use query_cases_financial instead.
 """
 
 
@@ -307,6 +333,22 @@ class AgentService:
                     result = json.dumps(data)
                 else:
                     result = raw
+            elif tool_name == "query_cases_financial":
+                raw = await self._tool_cases_financial(args)
+                if self._max_tier < Sensitivity.RESTRICTED:
+                    data = json.loads(raw)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    result = json.dumps(data)
+                else:
+                    result = raw
+            elif tool_name == "query_claims_analysis":
+                raw = await self._tool_claims_analysis(args)
+                if self._max_tier < Sensitivity.RESTRICTED:
+                    data = json.loads(raw)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    result = json.dumps(data)
+                else:
+                    result = raw
             else:
                 result = f"Unknown tool: {tool_name}"
         except Exception as e:
@@ -380,17 +422,78 @@ class AgentService:
                            "cases": cases, "active_cases": active, "risk_breakdown": risk_counts})
 
     async def _tool_query_cases(self, args: dict) -> str:
+        """Enhanced: returns cases WITH financial data (billed, paid, savings)."""
+        ws = self.workspace_id
+
+        # Build a subquery for medical claim amounts
+        med_sub = (
+            select(
+                MedicalClaim.claim_id,
+                MedicalClaim.amount_billed.label("billed"),
+                func.coalesce(MedicalClaim.amount_paid, 0).label("paid"),
+            ).select_from(MedicalClaim)
+        )
+        if ws is not None:
+            med_sub = med_sub.where(MedicalClaim.workspace_id == ws)
+        med_sub = med_sub.subquery("med_fin")
+
+        # Pharmacy claim amounts
+        rx_sub = (
+            select(
+                PharmacyClaim.claim_id,
+                PharmacyClaim.amount_billed.label("billed"),
+                func.coalesce(PharmacyClaim.amount_paid, 0).label("paid"),
+            ).select_from(PharmacyClaim)
+        )
+        if ws is not None:
+            rx_sub = rx_sub.where(PharmacyClaim.workspace_id == ws)
+        rx_sub = rx_sub.subquery("rx_fin")
+
         q = select(InvestigationCase)
         if args.get("risk_level"):
             q = q.where(InvestigationCase.risk_level == args["risk_level"])
         if args.get("status"):
             q = q.where(InvestigationCase.status == args["status"])
-        q = q.order_by(InvestigationCase.risk_score.desc()).limit(args.get("limit", 10))
+        if ws is not None:
+            q = q.where(InvestigationCase.workspace_id == ws)
+
+        sort_col = {
+            "savings": InvestigationCase.estimated_fraud_amount,
+            "amount_billed": InvestigationCase.estimated_fraud_amount,
+            "estimated_fraud": InvestigationCase.estimated_fraud_amount,
+        }.get(args.get("sort_by", ""), InvestigationCase.risk_score)
+        q = q.order_by(sort_col.desc().nullslast()).limit(args.get("limit", 10))
+
         result = await self.session.execute(q)
-        cases = [{"case_id": c.case_id, "risk_score": float(c.risk_score), "risk_level": c.risk_level,
-                  "status": c.status, "priority": c.priority, "claim_id": c.claim_id}
-                 for c in result.scalars()]
-        return json.dumps(cases)
+        cases = []
+        for c in result.scalars():
+            # Lookup claim amounts
+            billed = 0.0
+            paid = 0.0
+            med_row = (await self.session.execute(
+                select(med_sub.c.billed, med_sub.c.paid).where(med_sub.c.claim_id == c.claim_id)
+            )).first()
+            if med_row:
+                billed, paid = float(med_row.billed), float(med_row.paid)
+            else:
+                rx_row = (await self.session.execute(
+                    select(rx_sub.c.billed, rx_sub.c.paid).where(rx_sub.c.claim_id == c.claim_id)
+                )).first()
+                if rx_row:
+                    billed, paid = float(rx_row.billed), float(rx_row.paid)
+
+            savings = billed - paid
+            cases.append({
+                "case_id": c.case_id, "claim_id": c.claim_id,
+                "risk_score": float(c.risk_score), "risk_level": c.risk_level,
+                "status": c.status, "priority": c.priority,
+                "amount_billed": round(billed, 2),
+                "amount_paid": round(paid, 2),
+                "savings_prevented": round(savings, 2),
+                "estimated_fraud_amount": float(c.estimated_fraud_amount) if c.estimated_fraud_amount else 0.0,
+                "recovery_amount": float(c.recovery_amount) if c.recovery_amount else 0.0,
+            })
+        return json.dumps({"count": len(cases), "cases": cases})
 
     async def _tool_case_detail(self, case_id: str) -> str:
         ctx = await self._gather_case_context(case_id)
@@ -508,6 +611,211 @@ class AgentService:
             "by_status": status_fin,
         })
 
+    async def _tool_cases_financial(self, args: dict) -> str:
+        """Per-case financial breakdown with filtering — the key tool for financial questions."""
+        ws = self.workspace_id
+        min_savings = float(args.get("min_savings", 0))
+        min_fraud = float(args.get("min_fraud_amount", 0))
+        limit = int(args.get("limit", 50))
+
+        # Fetch all cases with optional filters
+        q = select(InvestigationCase)
+        if args.get("risk_level"):
+            q = q.where(InvestigationCase.risk_level == args["risk_level"])
+        if args.get("status"):
+            q = q.where(InvestigationCase.status == args["status"])
+        if min_fraud > 0:
+            q = q.where(InvestigationCase.estimated_fraud_amount >= min_fraud)
+        if ws is not None:
+            q = q.where(InvestigationCase.workspace_id == ws)
+        q = q.order_by(InvestigationCase.risk_score.desc()).limit(500)  # wide fetch for filtering
+
+        result = await self.session.execute(q)
+        rows = []
+        for c in result.scalars():
+            # Get claim financial data
+            billed = 0.0
+            paid = 0.0
+            med = (await self.session.execute(
+                select(MedicalClaim.amount_billed, MedicalClaim.amount_paid)
+                .where(MedicalClaim.claim_id == c.claim_id)
+            )).first()
+            if med:
+                billed = float(med.amount_billed) if med.amount_billed else 0.0
+                paid = float(med.amount_paid) if med.amount_paid else 0.0
+            else:
+                rx = (await self.session.execute(
+                    select(PharmacyClaim.amount_billed, PharmacyClaim.amount_paid)
+                    .where(PharmacyClaim.claim_id == c.claim_id)
+                )).first()
+                if rx:
+                    billed = float(rx.amount_billed) if rx.amount_billed else 0.0
+                    paid = float(rx.amount_paid) if rx.amount_paid else 0.0
+
+            savings = billed - paid
+            if savings < min_savings:
+                continue
+
+            rows.append({
+                "case_id": c.case_id,
+                "claim_id": c.claim_id,
+                "claim_type": c.claim_type,
+                "risk_level": c.risk_level,
+                "risk_score": float(c.risk_score),
+                "status": c.status,
+                "amount_billed": round(billed, 2),
+                "amount_paid": round(paid, 2),
+                "savings_prevented": round(savings, 2),
+                "estimated_fraud_amount": float(c.estimated_fraud_amount) if c.estimated_fraud_amount else 0.0,
+                "recovery_amount": float(c.recovery_amount) if c.recovery_amount else 0.0,
+            })
+
+        # Sort by savings descending
+        rows.sort(key=lambda r: r["savings_prevented"], reverse=True)
+        rows = rows[:limit]
+
+        # Compute summary stats
+        total_savings = sum(r["savings_prevented"] for r in rows)
+        total_fraud = sum(r["estimated_fraud_amount"] for r in rows)
+        total_recovery = sum(r["recovery_amount"] for r in rows)
+
+        return json.dumps({
+            "matching_cases": len(rows),
+            "total_savings_across_matches": round(total_savings, 2),
+            "total_estimated_fraud_across_matches": round(total_fraud, 2),
+            "total_recovery_across_matches": round(total_recovery, 2),
+            "filter_applied": {
+                "min_savings": min_savings,
+                "min_fraud_amount": min_fraud,
+                "risk_level": args.get("risk_level"),
+                "status": args.get("status"),
+            },
+            "cases": rows,
+        })
+
+    async def _tool_claims_analysis(self, args: dict) -> str:
+        """Flexible claim-level aggregation for analytical breakdowns."""
+        ws = self.workspace_id
+        group_by = args.get("group_by", "risk_level")
+        min_amount = float(args.get("min_amount", 0))
+        claim_type = args.get("claim_type")  # "medical", "pharmacy", or None (both)
+
+        results = {}
+
+        if claim_type != "pharmacy":
+            # Medical claims grouped
+            if group_by == "provider":
+                q = (
+                    select(
+                        Provider.name.label("group_key"),
+                        Provider.npi.label("npi"),
+                        func.count().label("claim_count"),
+                        func.sum(MedicalClaim.amount_billed).label("total_billed"),
+                        func.coalesce(func.sum(MedicalClaim.amount_paid), 0).label("total_paid"),
+                    )
+                    .select_from(MedicalClaim)
+                    .join(Provider, Provider.id == MedicalClaim.provider_id)
+                    .join(InvestigationCase, InvestigationCase.claim_id == MedicalClaim.claim_id)
+                )
+                if min_amount > 0:
+                    q = q.where(MedicalClaim.amount_billed >= min_amount)
+                if ws is not None:
+                    q = q.where(MedicalClaim.workspace_id == ws)
+                q = q.group_by(Provider.name, Provider.npi).order_by(func.sum(MedicalClaim.amount_billed).desc()).limit(20)
+                rows = (await self.session.execute(q)).all()
+                for r in rows:
+                    key = f"{r.group_key} (NPI: {r.npi})"
+                    results[key] = {
+                        "claim_count": int(r.claim_count),
+                        "total_billed": float(r.total_billed),
+                        "total_paid": float(r.total_paid),
+                        "savings": round(float(r.total_billed) - float(r.total_paid), 2),
+                    }
+            elif group_by == "cpt_code":
+                q = (
+                    select(
+                        MedicalClaim.cpt_code.label("group_key"),
+                        func.count().label("claim_count"),
+                        func.sum(MedicalClaim.amount_billed).label("total_billed"),
+                        func.coalesce(func.sum(MedicalClaim.amount_paid), 0).label("total_paid"),
+                    )
+                    .select_from(MedicalClaim)
+                    .join(InvestigationCase, InvestigationCase.claim_id == MedicalClaim.claim_id)
+                )
+                if min_amount > 0:
+                    q = q.where(MedicalClaim.amount_billed >= min_amount)
+                if ws is not None:
+                    q = q.where(MedicalClaim.workspace_id == ws)
+                q = q.group_by(MedicalClaim.cpt_code).order_by(func.sum(MedicalClaim.amount_billed).desc()).limit(20)
+                rows = (await self.session.execute(q)).all()
+                for r in rows:
+                    results[r.group_key] = {
+                        "claim_count": int(r.claim_count),
+                        "total_billed": float(r.total_billed),
+                        "total_paid": float(r.total_paid),
+                        "savings": round(float(r.total_billed) - float(r.total_paid), 2),
+                    }
+            else:
+                # Default: group by risk_level or status via InvestigationCase
+                group_col = {
+                    "risk_level": InvestigationCase.risk_level,
+                    "status": InvestigationCase.status,
+                    "claim_type": InvestigationCase.claim_type,
+                }.get(group_by, InvestigationCase.risk_level)
+
+                q = (
+                    select(
+                        group_col.label("group_key"),
+                        func.count().label("case_count"),
+                        func.coalesce(func.sum(MedicalClaim.amount_billed), 0).label("med_billed"),
+                        func.coalesce(func.sum(MedicalClaim.amount_paid), 0).label("med_paid"),
+                    )
+                    .select_from(InvestigationCase)
+                    .outerjoin(MedicalClaim, MedicalClaim.claim_id == InvestigationCase.claim_id)
+                )
+                if ws is not None:
+                    q = q.where(InvestigationCase.workspace_id == ws)
+                q = q.group_by(group_col).order_by(func.count().desc())
+                rows = (await self.session.execute(q)).all()
+                for r in rows:
+                    results[str(r.group_key)] = {
+                        "case_count": int(r.case_count),
+                        "total_billed": float(r.med_billed),
+                        "total_paid": float(r.med_paid),
+                        "savings": round(float(r.med_billed) - float(r.med_paid), 2),
+                    }
+
+        if claim_type == "pharmacy" or (claim_type is None and group_by == "drug_name"):
+            q = (
+                select(
+                    PharmacyClaim.drug_name.label("group_key"),
+                    func.count().label("claim_count"),
+                    func.sum(PharmacyClaim.amount_billed).label("total_billed"),
+                    func.coalesce(func.sum(PharmacyClaim.amount_paid), 0).label("total_paid"),
+                )
+                .select_from(PharmacyClaim)
+                .join(InvestigationCase, InvestigationCase.claim_id == PharmacyClaim.claim_id)
+            )
+            if min_amount > 0:
+                q = q.where(PharmacyClaim.amount_billed >= min_amount)
+            if ws is not None:
+                q = q.where(PharmacyClaim.workspace_id == ws)
+            q = q.group_by(PharmacyClaim.drug_name).order_by(func.sum(PharmacyClaim.amount_billed).desc()).limit(20)
+            rows = (await self.session.execute(q)).all()
+            for r in rows:
+                results[r.group_key] = {
+                    "claim_count": int(r.claim_count),
+                    "total_billed": float(r.total_billed),
+                    "total_paid": float(r.total_paid),
+                    "savings": round(float(r.total_billed) - float(r.total_paid), 2),
+                }
+
+        return json.dumps({
+            "group_by": group_by,
+            "groups": results,
+            "total_groups": len(results),
+        })
+
     def _parse_tool_call(self, text: str) -> tuple[str, dict] | None:
         match = re.search(r'\{[^{}]*"tool"\s*:\s*"[^"]+?"[^{}]*\}', text)
         if match:
@@ -522,8 +830,11 @@ class AgentService:
 
     async def _react_loop(self, message: str, system_prompt: str, history: list[dict] | None = None) -> tuple[str, list[str]]:
         sources: list[str] = []
+        original_question = message
         current_prompt = message
-        for i in range(5):
+        tool_results_so_far: list[str] = []
+
+        for i in range(7):
             response = await self._call_ollama(current_prompt, system_prompt, history)
             if not response:
                 return "", sources
@@ -534,10 +845,20 @@ class AgentService:
             logger.info("ReAct %d: tool=%s args=%s", i + 1, tool_name, args)
             tool_result = await self._execute_tool(tool_name, args)
             sources.append(f"tool:{tool_name}")
+            tool_results_so_far.append(f"[{tool_name}]: {tool_result}")
+
+            # Build a rich follow-up prompt that includes the original question and all results
+            all_results = "\n\n".join(tool_results_so_far)
             current_prompt = (
-                f"Tool result for {tool_name}:\n{tool_result}\n\n"
-                f"Now answer the user's original question based on this data. "
-                f"Do NOT call another tool unless you need additional information."
+                f"ORIGINAL USER QUESTION: {original_question}\n\n"
+                f"TOOL RESULTS COLLECTED SO FAR:\n{all_results}\n\n"
+                f"INSTRUCTIONS:\n"
+                f"1. You now have real data. Answer the user's question directly using ONLY this data.\n"
+                f"2. Count, compute, and calculate as needed — do the math yourself from the data.\n"
+                f"3. If you have enough data, give a complete answer with exact numbers. "
+                f"Format with markdown, bold key figures, use tables if showing multiple items.\n"
+                f"4. If you still need MORE data to answer, call another tool. "
+                f"But NEVER say 'I cannot' — use a tool instead.\n"
             )
         return response or "", sources
 
@@ -672,17 +993,39 @@ class AgentService:
                 sections.append("TOP 10 CASES:\n" + "\n".join(lines))
                 sources.append("database:top-cases")
 
-        if _matches_any(msg, ["amount", "save", "saved", "saving", "cost", "dollar", "money", "financial",
-                               "prevent", "prevention", "recover", "fraud amount", "billed", "paid",
-                               "loss", "losses", "revenue", "impact", "value", "worth", "expense"]):
+        is_financial_q = _matches_any(msg, [
+            "amount", "save", "saved", "saving", "cost", "dollar", "money", "financial",
+            "prevent", "prevention", "recover", "fraud amount", "billed", "paid",
+            "loss", "losses", "revenue", "impact", "value", "worth", "expense",
+        ])
+        is_per_case_financial = is_financial_q and _matches_any(msg, [
+            "how many", "which case", "cases where", "per case", "each case",
+            "more than", "greater than", "above", "exceed", "over $", "over",
+            "less than", "below", "under",
+        ])
+
+        if is_financial_q:
             if self._max_tier >= Sensitivity.SENSITIVE:
                 fin_data = await self._tool_financial_summary()
                 if self._max_tier < Sensitivity.RESTRICTED:
                     data = json.loads(fin_data)
                     data = redact_financial_for_tier(data, self._max_tier)
                     fin_data = json.dumps(data)
-                sections.append(f"FINANCIAL DATA (live):\n{fin_data}")
+                sections.append(f"FINANCIAL DATA (aggregates):\n{fin_data}")
                 sources.append("database:financial-summary")
+
+                # For per-case financial questions, pre-fetch per-case data
+                if is_per_case_financial:
+                    per_case_data = await self._tool_cases_financial({"limit": 20})
+                    if self._max_tier < Sensitivity.RESTRICTED:
+                        pcd = json.loads(per_case_data)
+                        pcd = redact_financial_for_tier(pcd, self._max_tier)
+                        per_case_data = json.dumps(pcd)
+                    sections.append(
+                        f"PER-CASE FINANCIAL DATA (top 20 by savings — use query_cases_financial tool for filtered queries):\n"
+                        f"{per_case_data}"
+                    )
+                    sources.append("database:per-case-financial")
             else:
                 sections.append("FINANCIAL DATA: [Access restricted — requires investigator or higher role]")
                 sources.append("policy:financial-restricted")
@@ -948,28 +1291,37 @@ class AgentService:
                     for r in case_ctx.get("triggered_rules", []):
                         sources.append(f"rule:{r['rule_id']}")
 
-            ws_note = f"\nScoped to workspace {self.workspace_id}." if self.workspace_id else ""
+            ws_note = f"\n[WORKSPACE]: Scoped to workspace {self.workspace_id}." if self.workspace_id else ""
             tier_note = (
-                f"\nCaller access tier: {self._max_tier.name}. "
+                f"\n[ACCESS TIER]: {self._max_tier.name}. "
                 f"{'You may share financial data freely.' if self._max_tier >= Sensitivity.RESTRICTED else ''}"
                 f"{'You may show individual claim amounts but NOT aggregate fraud estimates or recovery totals.' if self._max_tier == Sensitivity.SENSITIVE else ''}"
                 f"{'Do NOT disclose any dollar amounts, financial figures, or monetary data. Only share counts and statuses.' if self._max_tier < Sensitivity.SENSITIVE else ''}"
             )
             system_prompt = (
-                "You are an AI assistant for the ArqAI FWA (Fraud, Waste, Abuse) detection platform.\n"
-                "Use the provided LIVE DATA to answer questions accurately.\n\n"
-                "REASONING RULES:\n"
-                "1. Think step by step. For financial or analytical questions, first identify which "
-                "numbers from the data are relevant, then show your calculation.\n"
-                "2. Always quote exact dollar amounts and counts from the data — never estimate.\n"
-                "3. If the data you need is not in the context below, use a tool to get it.\n"
-                "4. For 'savings' or 'prevention': amount_prevented = total_amount_billed_on_flagged - total_amount_paid_on_flagged. "
-                "This is money NOT paid out because claims were flagged. Also report total_estimated_fraud and total_recovered.\n"
-                "5. Use markdown formatting. Bold key numbers. Be concise but complete.\n"
-                "6. Reference case/rule IDs exactly as they appear.\n"
-                "7. CRITICAL: Respect the caller's access tier. If data is marked [RESTRICTED] or "
-                "[REQUIRES COMPLIANCE ACCESS], do NOT attempt to infer or calculate the redacted values. "
-                "Instead, inform the user they need elevated permissions.\n"
+                "You are an expert AI investigation assistant for the ArqAI FWA (Fraud, Waste, Abuse) detection platform.\n"
+                "You have FULL access to the platform's live database through tools. You are intelligent, thorough, and precise.\n\n"
+                "ABSOLUTE RULES:\n"
+                "1. NEVER say 'I don't have access to' or 'I can't' — you HAVE tools to query ANY data in the platform.\n"
+                "   If data is not in the context below, USE A TOOL to get it. That is what tools are for.\n"
+                "2. For per-case financial questions (e.g. 'how many cases saved >$X'), use query_cases_financial with min_savings filter.\n"
+                "3. For aggregate financial questions, use query_financial_summary.\n"
+                "4. For analytical breakdowns (by provider, CPT, risk level), use query_claims_analysis.\n"
+                "5. Think step by step. Show your reasoning and calculations explicitly.\n"
+                "6. Always quote exact dollar amounts and counts from tool results — never estimate or round unless asked.\n"
+                "7. For 'savings' or 'prevention': savings = amount_billed - amount_paid (money NOT paid because claims were flagged).\n"
+                "8. Use markdown formatting: bold key numbers, use tables for multi-row data, headers for sections.\n"
+                "9. Reference case IDs and rule IDs exactly as they appear in data.\n"
+                "10. CRITICAL: Respect the caller's access tier. If data is marked [RESTRICTED] or [REQUIRES COMPLIANCE ACCESS], "
+                "inform the user they need elevated permissions — but never claim YOU lack access.\n\n"
+                "WHEN TO USE EACH TOOL:\n"
+                "- 'how many cases...' with financial condition → query_cases_financial\n"
+                "- 'total saved/prevented/recovered' → query_financial_summary\n"
+                "- 'which providers/CPT codes/drugs...' → query_claims_analysis\n"
+                "- 'show top/list cases' → query_cases\n"
+                "- 'tell me about CASE-XXXX' → query_case_detail\n"
+                "- 'what rules triggered' → query_rules\n"
+                "- 'overview/stats' → query_pipeline_stats\n"
                 f"{ws_note}{tier_note}\n\n{TOOL_DEFINITIONS}"
             )
 
@@ -1085,7 +1437,12 @@ class AgentService:
                 context_parts.append(f"CASE:\n{json.dumps(case_ctx, indent=2, default=str)}")
                 sources.append(f"case:{case_id}")
 
-        system_prompt = "You are an AI assistant for ArqAI FWA detection. Use provided data. Markdown format."
+        system_prompt = (
+            "You are an expert AI investigation assistant for the ArqAI FWA detection platform. "
+            "Use the provided LIVE DATA to answer questions accurately and completely. "
+            "NEVER say 'I cannot' or 'I don't have access' — the data is right here. "
+            "Use markdown formatting, bold key numbers, and be precise."
+        )
         context_block = "\n\n---\n\n".join(context_parts)
         prompt = f"{message}\n\n{context_block}" if context_block else message
 
@@ -1126,6 +1483,10 @@ class AgentService:
         if _matches_any(msg, ["amount", "save", "saved", "saving", "cost", "dollar", "money", "financial",
                                "prevent", "prevention", "recover", "fraud amount", "billed", "paid",
                                "loss", "losses", "revenue", "impact", "value", "worth", "expense"]):
+            # Check if it's a per-case financial question
+            if _matches_any(msg, ["how many", "which case", "cases where", "per case", "each case",
+                                   "more than", "greater than", "above", "exceed", "over"]):
+                return await self._answer_per_case_financial(msg, sources)
             return await self._answer_financial(sources)
         if _matches_any(msg, ["help", "what can you", "capabilities"]):
             return self._answer_help(sources)
@@ -1290,6 +1651,50 @@ class AgentService:
 
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
+    async def _answer_per_case_financial(self, msg: str, sources: list[str]) -> ChatResponse:
+        """Data-driven fallback for per-case financial questions."""
+        if self._max_tier < Sensitivity.SENSITIVE:
+            return ChatResponse(
+                response="**Access Restricted**\n\nFinancial data requires investigator-level "
+                         "access or higher.",
+                sources_cited=["policy:access-denied"], confidence="high",
+            )
+
+        # Extract dollar threshold from message
+        threshold = 0.0
+        amount_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)', msg)
+        if amount_match:
+            threshold = float(amount_match.group(1).replace(",", ""))
+
+        per_case_raw = await self._tool_cases_financial({"min_savings": threshold, "limit": 50})
+        if self._max_tier < Sensitivity.RESTRICTED:
+            data = json.loads(per_case_raw)
+            data = redact_financial_for_tier(data, self._max_tier)
+        else:
+            data = json.loads(per_case_raw)
+        sources.append("database:per-case-financial")
+
+        count = data.get("matching_cases", 0)
+        total_savings = data.get("total_savings_across_matches", 0)
+        cases_list = data.get("cases", [])
+
+        lines = [f"**{count} case(s)** with savings/prevention greater than **${threshold:,.2f}**\n"]
+        lines.append(f"**Total savings across these cases:** **${total_savings:,.2f}**\n")
+
+        if cases_list:
+            lines.append("| Case ID | Risk | Billed | Paid | Savings | Status |")
+            lines.append("|---------|------|--------|------|---------|--------|")
+            for c in cases_list[:15]:  # Show top 15
+                lines.append(
+                    f"| {c['case_id']} | {c['risk_level']} | "
+                    f"${c['amount_billed']:,.2f} | ${c['amount_paid']:,.2f} | "
+                    f"**${c['savings_prevented']:,.2f}** | {c['status']} |"
+                )
+            if len(cases_list) > 15:
+                lines.append(f"\n*...and {len(cases_list) - 15} more cases*")
+
+        return ChatResponse(response="\n".join(lines), sources_cited=sources)
+
     async def _answer_provider(self, msg: str, sources: list[str]) -> ChatResponse:
         npi_match = re.search(r'\b(\d{10})\b', msg)
         if npi_match:
@@ -1307,8 +1712,15 @@ class AgentService:
     def _answer_help(self, sources: list[str]) -> ChatResponse:
         return ChatResponse(
             response="**I can help with:**\n\n"
-                     "**With a case:** explain, rules, risk score, recommendations, provider\n"
-                     "**General:** stats, top risk cases, most triggered rules, provider lookup (NPI)",
+                     "**Case analysis:** explain a case, view triggered rules, risk score breakdown, recommendations, provider details\n\n"
+                     "**Financial questions:** how much saved/prevented, per-case savings, cases above $X threshold, "
+                     "financial impact by risk level, recovery amounts\n\n"
+                     "**Analytics:** breakdown by provider, CPT code, drug, risk level; top triggered rules; pipeline stats\n\n"
+                     "**Examples:**\n"
+                     "- *\"How many cases saved more than $1,000?\"*\n"
+                     "- *\"Which providers have the highest flagged billing?\"*\n"
+                     "- *\"Show me the total financial impact\"*\n"
+                     "- *\"What are the top 5 critical cases?\"*",
             sources_cited=sources)
 
     async def _answer_general(self, sources: list[str]) -> ChatResponse:
