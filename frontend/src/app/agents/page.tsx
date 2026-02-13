@@ -177,8 +177,15 @@ export default function AgentsPage() {
   // Agent status
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
 
-  // Session state
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  // Session state — persist across tab switches
+  const STORAGE_KEY = "arq_chat_session_id";
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(STORAGE_KEY);
+    }
+    return null;
+  });
+  const [restoringSession, setRestoringSession] = useState(false);
 
   // Case selector state
   const [caseList, setCaseList] = useState<CaseSummary[]>([]);
@@ -186,6 +193,36 @@ export default function AgentsPage() {
   const [caseSearch, setCaseSearch] = useState("");
   const [showCaseDropdown, setShowCaseDropdown] = useState(false);
   const [loadingCases, setLoadingCases] = useState(false);
+
+  // Restore chat history from backend on mount
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    setRestoringSession(true);
+    agents
+      .sessionMessages(sessionId, 100)
+      .then((data) => {
+        if (cancelled || !data.messages || data.messages.length === 0) return;
+        const restored: Message[] = data.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          timestamp: m.created_at ? new Date(m.created_at) : new Date(),
+          model: m.model_used ?? undefined,
+          sources: m.sources_cited ?? undefined,
+          confidence: m.confidence ?? undefined,
+        }));
+        setMessages(restored);
+      })
+      .catch(() => {
+        // Session expired or invalid — clear it
+        localStorage.removeItem(STORAGE_KEY);
+        setSessionId(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRestoringSession(false);
+      });
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll
   useEffect(() => {
@@ -259,9 +296,10 @@ export default function AgentsPage() {
     try {
       const result = await agents.chat(trimmed, selectedCase, sessionId, activeWorkspace);
 
-      // Track session from first response
+      // Track session from first response — persist for tab switches
       if (result.session_id && !sessionId) {
         setSessionId(result.session_id);
+        localStorage.setItem(STORAGE_KEY, result.session_id);
       }
 
       const assistantMessage: Message = {
@@ -534,6 +572,12 @@ export default function AgentsPage() {
 
       {/* Message Area */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-gray-50">
+        {restoringSession && (
+          <div className="flex items-center justify-center py-4 text-sm text-gray-400">
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            Restoring previous conversation...
+          </div>
+        )}
         {messages.map((msg, idx) => (
           <div
             key={idx}
