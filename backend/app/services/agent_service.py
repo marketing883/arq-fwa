@@ -879,15 +879,26 @@ class AgentService:
         })
 
     def _parse_tool_call(self, text: str) -> tuple[str, dict] | None:
-        match = re.search(r'\{[^{}]*"tool"\s*:\s*"[^"]+?"[^{}]*\}', text)
-        if match:
-            try:
-                parsed = json.loads(match.group())
-                tool_name = parsed.get("tool")
-                if tool_name:
-                    return tool_name, parsed.get("args", {})
-            except json.JSONDecodeError:
-                pass
+        # Find candidates that look like they contain a "tool" key
+        # Use brace-counting to handle nested JSON (e.g. args with dicts)
+        for match in re.finditer(r'\{', text):
+            start = match.start()
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                        tool_name = parsed.get("tool")
+                        if tool_name:
+                            return tool_name, parsed.get("args", {})
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+                    break
         return None
 
     async def _react_loop(self, message: str, system_prompt: str, history: list[dict] | None = None) -> tuple[str, list[str]]:
