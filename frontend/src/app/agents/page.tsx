@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 /* -------------------------------------------------------------------------- */
 /*  Prose overrides – compact spacing for chat bubbles                        */
@@ -42,10 +43,14 @@ const markdownClasses = [
   // code blocks
   "prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-pre:rounded-lg prose-pre:my-2",
   "prose-pre:text-xs prose-pre:leading-relaxed",
-  // tables
-  "prose-table:my-2 prose-table:text-xs",
-  "prose-th:bg-white/50 prose-th:text-left prose-th:px-2 prose-th:py-1.5 prose-th:font-semibold",
-  "prose-td:px-2 prose-td:py-1 prose-td:border-t prose-td:border-gray-200",
+  // tables — proper borders, bg, and overflow
+  "prose-table:my-2 prose-table:text-xs prose-table:w-full prose-table:border-collapse",
+  "prose-table:border prose-table:border-gray-200 prose-table:rounded-lg",
+  "prose-thead:bg-gray-50/80",
+  "prose-th:text-left prose-th:px-2.5 prose-th:py-1.5 prose-th:font-semibold prose-th:text-gray-700",
+  "prose-th:border prose-th:border-gray-200 prose-th:text-[11px] prose-th:uppercase prose-th:tracking-wide",
+  "prose-td:px-2.5 prose-td:py-1.5 prose-td:border prose-td:border-gray-200 prose-td:text-gray-700",
+  "prose-td:whitespace-nowrap",
   // blockquotes
   "prose-blockquote:border-purple-300 prose-blockquote:text-gray-600 prose-blockquote:my-2 prose-blockquote:not-italic",
   // hr & links
@@ -616,7 +621,20 @@ export default function AgentsPage() {
               >
                 {msg.role === "assistant" ? (
                   <div className={markdownClasses}>
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        table: ({ children, ...props }) => (
+                          <div className="overflow-x-auto my-2 rounded-lg border border-gray-200">
+                            <table {...props} className="min-w-full text-xs border-collapse">
+                              {children}
+                            </table>
+                          </div>
+                        ),
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
                   </div>
                 ) : (
                   <span className="whitespace-pre-wrap">{msg.content}</span>
