@@ -16,9 +16,19 @@ import {
   Play,
   Eye,
   MessageSquare,
+  LogOut,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useAuth } from "@/lib/auth-context";
 import { useState, useRef, useEffect } from "react";
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Admin",
+  compliance: "Compliance",
+  investigator: "Investigator",
+  analyst: "Analyst",
+  viewer: "Viewer",
+};
 
 const navGroups = [
   {
@@ -51,6 +61,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { workspaces, activeWorkspace, setActiveWorkspace, loading } =
     useWorkspace();
+  const { user, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -198,18 +209,37 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="p-3">
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-[8px] bg-white/[0.04] border border-white/[0.07]">
-          <span
-            className="w-1.5 h-1.5 rounded-full bg-brand-lime animate-glow"
-          />
-          <span className="text-[11px] text-white/40" style={{ fontWeight: 430 }}>
-            All systems operational
+      {/* User profile + logout */}
+      <div className="p-3 space-y-2">
+        {user && (
+          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-white/[0.04] border border-white/[0.07]">
+            <div className="w-7 h-7 rounded-full bg-brand-blue/20 border border-brand-blue/30 flex items-center justify-center shrink-0">
+              <span className="text-[11px] font-semibold text-brand-blue">
+                {user.full_name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] text-white/70 truncate" style={{ fontWeight: 500 }}>
+                {user.full_name}
+              </div>
+              <div className="text-[10px] text-white/30 truncate">
+                {ROLE_LABELS[user.role] || user.role}
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              className="p-1.5 rounded-[6px] hover:bg-white/[0.08] transition-colors"
+              title="Sign out"
+            >
+              <LogOut size={14} className="text-white/30 hover:text-white/60" />
+            </button>
+          </div>
+        )}
+        <div className="flex items-center gap-2 px-3 py-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-lime animate-glow" />
+          <span className="text-[10px] text-white/25" style={{ fontWeight: 430 }}>
+            v1.0 &middot; ArqAI Inc.
           </span>
-        </div>
-        <div className="text-[10px] text-white/15 px-3 pt-2" style={{ fontWeight: 430 }}>
-          v1.0 &middot; ArqAI Inc.
         </div>
       </div>
     </aside>

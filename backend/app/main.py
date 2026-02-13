@@ -29,6 +29,8 @@ from app.api.workspaces import router as workspaces_router
 from app.api.providers import router as providers_router
 from app.api.metrics import router as metrics_router
 from app.api.governance import router as governance_router
+from app.api.auth import router as auth_router
+from app.api.admin_users import router as admin_users_router
 
 
 @asynccontextmanager
@@ -111,6 +113,8 @@ app.include_router(workspaces_router)
 app.include_router(providers_router)
 app.include_router(metrics_router)
 app.include_router(governance_router)
+app.include_router(auth_router)
+app.include_router(admin_users_router)
 
 
 # ── Health check (expanded) ──────────────────────────────────────────────────

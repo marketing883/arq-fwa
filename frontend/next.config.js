@@ -21,6 +21,8 @@ const nextConfig = {
       "pipeline",
       "governance",
       "metrics",
+      "auth",
+      "admin",
     ];
     return segments.flatMap((s) => [
       { source: `/api/${s}`, destination: `${backend}/api/${s}` },

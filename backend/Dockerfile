@@ -21,6 +21,10 @@ COPY entrypoint.sh .
 
 RUN chmod +x entrypoint.sh
 
+# Run as non-root user
+RUN adduser --disabled-password --gecos "" appuser
+USER appuser
+
 EXPOSE 8000
 
 # Health check

@@ -18,10 +18,18 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
 
+    # JWT
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+
     # Security
     allowed_origins: str = "http://localhost:3000,http://localhost:80,http://localhost"
     rate_limit_per_minute: int = 60
     encryption_key: str = ""
+
+    # Database pool
+    db_pool_size: int = 20
+    db_max_overflow: int = 10
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

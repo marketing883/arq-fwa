@@ -9,6 +9,7 @@ from app.models.audit import AuditLog  # noqa: F401
 from app.models.reference import NDCReference, CPTReference, ICDReference  # noqa: F401
 from app.models.pipeline_run import PipelineRun  # noqa: F401
 from app.models.chat import ChatSession, ChatMessage  # noqa: F401
+from app.models.user import User  # noqa: F401
 
 # TAO models (Trust-Aware Agent Orchestration)
 from app.tao.models import (  # noqa: F401

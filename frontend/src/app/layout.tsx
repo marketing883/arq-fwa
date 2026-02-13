@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/sidebar";
+import { AuthProvider } from "@/lib/auth-context";
 import { WorkspaceProvider } from "@/lib/workspace-context";
+import { AppShell } from "@/components/layout/app-shell";
 
 export const metadata: Metadata = {
   title: "ArqAI FWA Detection & Prevention",
@@ -16,14 +17,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="flex h-screen overflow-hidden">
-        <WorkspaceProvider>
-          <Sidebar />
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <main className="flex-1 overflow-y-auto px-8 py-6">
-              {children}
-            </main>
-          </div>
-        </WorkspaceProvider>
+        <AuthProvider>
+          <WorkspaceProvider>
+            <AppShell>{children}</AppShell>
+          </WorkspaceProvider>
+        </AuthProvider>
       </body>
     </html>
   );
