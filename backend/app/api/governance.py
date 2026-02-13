@@ -405,15 +405,11 @@ async def list_feedback(
 
 # ── Sync / Refresh ─────────────────────────────────────────────────────────
 
-@router.post("/sync")
-async def sync_governance(
-    ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
-    db: AsyncSession = Depends(get_db),
-):
+async def run_governance_sync(db: AsyncSession) -> dict:
     """Re-generate governance data from current pipeline results.
 
-    Truncates existing governance tables and rebuilds from actual
-    risk_scores, rule_results, investigation_cases, and pipeline_runs.
+    Callable from both the /sync endpoint and post-pipeline hooks.
+    Returns a summary dict or a skip notice.
     """
     from app.seed.governance_data import (
         GOVERNANCE_TABLES, load_pipeline_data, build_trust_profiles,
@@ -492,3 +488,12 @@ async def sync_governance(
             "feedback": len(fb),
         },
     }
+
+
+@router.post("/sync")
+async def sync_governance(
+    ctx: RequestContext = Depends(require(Permission.DASHBOARD_VIEW)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-generate governance data from current pipeline results."""
+    return await run_governance_sync(db)

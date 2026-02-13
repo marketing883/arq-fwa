@@ -33,9 +33,11 @@ from app.api.governance import router as governance_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: verify DB connection
+    # Startup: verify DB connection + ensure all tables exist
+    from app.database import Base
     async with engine.begin() as conn:
         await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+        await conn.run_sync(Base.metadata.create_all)
     yield
     # Shutdown
     await engine.dispose()

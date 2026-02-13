@@ -91,11 +91,16 @@ async def load_pipeline_data(session: AsyncSession) -> dict:
     rule_catalog_q = await session.execute(select(Rule))
     rule_catalog = {r.rule_id: r for r in rule_catalog_q.scalars()}
 
-    # Pipeline runs
-    runs_q = await session.execute(
-        select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(10)
-    )
-    runs = list(runs_q.scalars())
+    # Pipeline runs (table may not exist yet)
+    runs = []
+    table_check = await session.execute(text(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pipeline_runs')"
+    ))
+    if table_check.scalar():
+        runs_q = await session.execute(
+            select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(10)
+        )
+        runs = list(runs_q.scalars())
 
     # Audit logs
     audits_q = await session.execute(

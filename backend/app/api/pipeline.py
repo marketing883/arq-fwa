@@ -14,9 +14,12 @@ GET /api/pipeline/runs/{run_id}
 """
 
 import json
+import logging
 import time
 from datetime import datetime
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -307,6 +310,14 @@ async def run_full_pipeline(
             "critical_risk": critical_count,
         },
     )
+
+    # ── 10. Sync governance data from pipeline results ──────────────────
+    try:
+        from app.api.governance import run_governance_sync
+        await run_governance_sync(db)
+        logger.info("Governance data synced after pipeline run %s", run_id)
+    except Exception as e:
+        logger.warning("Governance sync failed (non-fatal): %s", e)
 
     # ── Prometheus metrics ───────────────────────────────────────────────
     pipeline_runs_total.labels(workspace=body.workspace_id or "default", status="completed").inc()
@@ -627,6 +638,16 @@ async def run_pipeline_stream(
             resource_id=batch_id,
             details={"batch_id": batch_id, "total_claims": total_claims, "rules_evaluated": rules_saved, "cases_created": len(new_cases)},
         )
+
+        # Sync governance data from pipeline results
+        yield send_event("phase", {"phase": "governance", "label": "Syncing AI governance data", "progress": 0})
+        try:
+            from app.api.governance import run_governance_sync
+            await run_governance_sync(db)
+            yield send_event("progress", {"phase": "governance", "current": 1, "total": 1, "progress": 100, "detail": "Governance data synced"})
+        except Exception as e:
+            logger.warning("Governance sync failed (non-fatal): %s", e)
+            yield send_event("progress", {"phase": "governance", "current": 0, "total": 1, "progress": 100, "detail": f"Governance sync skipped: {e}"})
 
         yield send_event("complete", {
             "batch_id": batch_id,
