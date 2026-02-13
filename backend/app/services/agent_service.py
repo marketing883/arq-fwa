@@ -35,6 +35,7 @@ from app.models import (
     InvestigationCase, MedicalClaim, PharmacyClaim,
     RiskScore, RuleResult, Rule, Provider, Member,
 )
+from app.models.workspace import Workspace
 from app.models.chat import ChatSession, ChatMessage
 from app.services.audit_service import AuditService
 from app.middleware.metrics import agent_chat_requests_total, agent_chat_duration_seconds
@@ -408,18 +409,27 @@ class AgentService:
         return result
 
     async def _tool_pipeline_stats(self) -> str:
-        med = (await self.session.execute(select(func.count()).select_from(MedicalClaim))).scalar() or 0
-        rx = (await self.session.execute(select(func.count()).select_from(PharmacyClaim))).scalar() or 0
-        cases = (await self.session.execute(select(func.count()).select_from(InvestigationCase))).scalar() or 0
-        active = (await self.session.execute(
-            select(func.count()).select_from(InvestigationCase).where(
-                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
-        )).scalar() or 0
+        ws = self.workspace_id
+        med_q = select(func.count()).select_from(MedicalClaim)
+        rx_q = select(func.count()).select_from(PharmacyClaim)
+        cases_q = select(func.count()).select_from(InvestigationCase)
+        active_q = select(func.count()).select_from(InvestigationCase).where(
+            InvestigationCase.status.in_(["open", "under_review", "escalated"]))
+        if ws is not None:
+            med_q = med_q.where(MedicalClaim.workspace_id == ws)
+            rx_q = rx_q.where(PharmacyClaim.workspace_id == ws)
+            cases_q = cases_q.where(InvestigationCase.workspace_id == ws)
+            active_q = active_q.where(InvestigationCase.workspace_id == ws)
+        med = (await self.session.execute(med_q)).scalar() or 0
+        rx = (await self.session.execute(rx_q)).scalar() or 0
+        cases = (await self.session.execute(cases_q)).scalar() or 0
+        active = (await self.session.execute(active_q)).scalar() or 0
         risk_counts = {}
         for level in ("critical", "high", "medium", "low"):
-            risk_counts[level] = (await self.session.execute(
-                select(func.count()).select_from(InvestigationCase).where(InvestigationCase.risk_level == level)
-            )).scalar() or 0
+            rq = select(func.count()).select_from(InvestigationCase).where(InvestigationCase.risk_level == level)
+            if ws is not None:
+                rq = rq.where(InvestigationCase.workspace_id == ws)
+            risk_counts[level] = (await self.session.execute(rq)).scalar() or 0
         return json.dumps({"total_claims": med + rx, "medical": med, "pharmacy": rx,
                            "cases": cases, "active_cases": active, "risk_breakdown": risk_counts})
 
@@ -504,17 +514,21 @@ class AgentService:
         return json.dumps(ctx, default=str)
 
     async def _tool_query_rules(self, args: dict) -> str:
+        ws = self.workspace_id
         q = (select(RuleResult.rule_id, func.count().label("cnt"))
-             .where(RuleResult.triggered == True)
-             .group_by(RuleResult.rule_id)
-             .order_by(func.count().desc())
-             .limit(args.get("limit", 10)))
+             .where(RuleResult.triggered == True))
+        if ws is not None:
+            q = q.where(RuleResult.workspace_id == ws)
+        q = q.group_by(RuleResult.rule_id).order_by(func.count().desc()).limit(args.get("limit", 10))
         result = await self.session.execute(q)
         return json.dumps([{"rule_id": r[0], "trigger_count": r[1]} for r in result])
 
     async def _tool_query_provider(self, npi: str) -> str:
-        prov_q = await self.session.execute(select(Provider).where(Provider.npi == npi))
-        prov = prov_q.scalar_one_or_none()
+        ws = self.workspace_id
+        q = select(Provider).where(Provider.npi == npi)
+        if ws is not None:
+            q = q.where(Provider.workspace_id == ws)
+        prov = (await self.session.execute(q)).scalar_one_or_none()
         if not prov:
             return json.dumps({"error": f"Provider NPI {npi} not found"})
         return json.dumps({"npi": prov.npi, "name": prov.name, "specialty": prov.specialty,
@@ -625,14 +639,15 @@ class AgentService:
             )).scalar() or 0)
 
             # Fraud amount for this level = sum of amount_billed on claims at this risk level
-            level_med_fraud = float((await self.session.execute(
-                select(func.coalesce(func.sum(MedicalClaim.amount_billed), 0))
-                .where(MedicalClaim.claim_id.in_(level_subq))
-            )).scalar() or 0)
-            level_rx_fraud = float((await self.session.execute(
-                select(func.coalesce(func.sum(PharmacyClaim.amount_billed), 0))
-                .where(PharmacyClaim.claim_id.in_(level_subq))
-            )).scalar() or 0)
+            level_med_q = (select(func.coalesce(func.sum(MedicalClaim.amount_billed), 0))
+                .where(MedicalClaim.claim_id.in_(level_subq)))
+            level_rx_q = (select(func.coalesce(func.sum(PharmacyClaim.amount_billed), 0))
+                .where(PharmacyClaim.claim_id.in_(level_subq)))
+            if ws is not None:
+                level_med_q = level_med_q.where(MedicalClaim.workspace_id == ws)
+                level_rx_q = level_rx_q.where(PharmacyClaim.workspace_id == ws)
+            level_med_fraud = float((await self.session.execute(level_med_q)).scalar() or 0)
+            level_rx_fraud = float((await self.session.execute(level_rx_q)).scalar() or 0)
 
             risk_fin[level] = {
                 "cases": level_cnt,
@@ -1021,28 +1036,41 @@ class AgentService:
         msg = message.lower()
         sections: list[str] = []
         sources: list[str] = []
+        ws = self.workspace_id
 
-        med = (await self.session.execute(select(func.count()).select_from(MedicalClaim))).scalar() or 0
-        rx = (await self.session.execute(select(func.count()).select_from(PharmacyClaim))).scalar() or 0
-        total_cases = (await self.session.execute(select(func.count()).select_from(InvestigationCase))).scalar() or 0
-        active = (await self.session.execute(
-            select(func.count()).select_from(InvestigationCase).where(
-                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
-        )).scalar() or 0
+        med_q = select(func.count()).select_from(MedicalClaim)
+        rx_q = select(func.count()).select_from(PharmacyClaim)
+        cases_q = select(func.count()).select_from(InvestigationCase)
+        active_q = select(func.count()).select_from(InvestigationCase).where(
+            InvestigationCase.status.in_(["open", "under_review", "escalated"]))
+        scored_q = select(func.count()).select_from(RiskScore)
+        if ws is not None:
+            med_q = med_q.where(MedicalClaim.workspace_id == ws)
+            rx_q = rx_q.where(PharmacyClaim.workspace_id == ws)
+            cases_q = cases_q.where(InvestigationCase.workspace_id == ws)
+            active_q = active_q.where(InvestigationCase.workspace_id == ws)
+            scored_q = scored_q.where(RiskScore.workspace_id == ws)
+
+        med = (await self.session.execute(med_q)).scalar() or 0
+        rx = (await self.session.execute(rx_q)).scalar() or 0
+        total_cases = (await self.session.execute(cases_q)).scalar() or 0
+        active = (await self.session.execute(active_q)).scalar() or 0
 
         risk_counts = {}
         for level in ("critical", "high", "medium", "low"):
-            risk_counts[level] = (await self.session.execute(
-                select(func.count()).select_from(InvestigationCase).where(InvestigationCase.risk_level == level)
-            )).scalar() or 0
+            rq = select(func.count()).select_from(InvestigationCase).where(InvestigationCase.risk_level == level)
+            if ws is not None:
+                rq = rq.where(InvestigationCase.workspace_id == ws)
+            risk_counts[level] = (await self.session.execute(rq)).scalar() or 0
 
         status_counts = {}
         for st in ("open", "under_review", "escalated", "resolved", "closed"):
-            status_counts[st] = (await self.session.execute(
-                select(func.count()).select_from(InvestigationCase).where(InvestigationCase.status == st)
-            )).scalar() or 0
+            sq = select(func.count()).select_from(InvestigationCase).where(InvestigationCase.status == st)
+            if ws is not None:
+                sq = sq.where(InvestigationCase.workspace_id == ws)
+            status_counts[st] = (await self.session.execute(sq)).scalar() or 0
 
-        scored = (await self.session.execute(select(func.count()).select_from(RiskScore))).scalar() or 0
+        scored = (await self.session.execute(scored_q)).scalar() or 0
 
         sections.append(
             f"PLATFORM DATA (live):\n"
@@ -1056,9 +1084,10 @@ class AgentService:
 
         if _matches_any(msg, ["risk", "critical", "high", "case", "top", "worst", "severe",
                                "many", "total", "count", "list", "show", "open", "active", "investigate"]):
-            q = await self.session.execute(
-                select(InvestigationCase).order_by(InvestigationCase.risk_score.desc()).limit(10)
-            )
+            top_q = select(InvestigationCase).order_by(InvestigationCase.risk_score.desc()).limit(10)
+            if ws is not None:
+                top_q = top_q.where(InvestigationCase.workspace_id == ws)
+            q = await self.session.execute(top_q)
             cases = list(q.scalars())
             if cases:
                 lines = [f"  {c.case_id}: score={float(c.risk_score):.1f}, level={c.risk_level}, "
@@ -1104,12 +1133,12 @@ class AgentService:
                 sources.append("policy:financial-restricted")
 
         if _matches_any(msg, ["rule", "trigger", "detection", "pattern", "flag", "fired", "common"]):
-            q = await self.session.execute(
-                select(RuleResult.rule_id, func.count().label("cnt"))
-                .where(RuleResult.triggered == True)
-                .group_by(RuleResult.rule_id)
-                .order_by(func.count().desc()).limit(10)
-            )
+            rules_q = (select(RuleResult.rule_id, func.count().label("cnt"))
+                .where(RuleResult.triggered == True))
+            if ws is not None:
+                rules_q = rules_q.where(RuleResult.workspace_id == ws)
+            rules_q = rules_q.group_by(RuleResult.rule_id).order_by(func.count().desc()).limit(10)
+            q = await self.session.execute(rules_q)
             top_rules = list(q)
             if top_rules:
                 rule_ids = [r[0] for r in top_rules]
@@ -1364,7 +1393,21 @@ class AgentService:
                     for r in case_ctx.get("triggered_rules", []):
                         sources.append(f"rule:{r['rule_id']}")
 
-            ws_note = f"\n[WORKSPACE]: Scoped to workspace {self.workspace_id}." if self.workspace_id else ""
+            # Resolve workspace metadata for system prompt
+            ws_note = ""
+            if self.workspace_id is not None:
+                ws_obj = (await self.session.execute(
+                    select(Workspace).where(Workspace.id == self.workspace_id)
+                )).scalar_one_or_none()
+                if ws_obj:
+                    ws_note = (
+                        f"\n[WORKSPACE]: You are operating inside workspace '{ws_obj.name}'"
+                        f" (ID: {ws_obj.workspace_id}, client: {ws_obj.client_name or 'N/A'})."
+                        f" ALL data you see and all tool results are scoped exclusively to this workspace."
+                        f" Do NOT reference data from other workspaces."
+                    )
+                else:
+                    ws_note = f"\n[WORKSPACE]: Scoped to workspace {self.workspace_id}."
             tier_note = (
                 f"\n[ACCESS TIER]: {self._max_tier.name}. "
                 f"{'You may share financial data freely.' if self._max_tier >= Sensitivity.RESTRICTED else ''}"
@@ -1635,14 +1678,24 @@ class AgentService:
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
     async def _answer_stats(self, sources: list[str]) -> ChatResponse:
-        med = (await self.session.execute(select(func.count()).select_from(MedicalClaim))).scalar() or 0
-        rx = (await self.session.execute(select(func.count()).select_from(PharmacyClaim))).scalar() or 0
-        cases = (await self.session.execute(select(func.count()).select_from(InvestigationCase))).scalar() or 0
-        active = (await self.session.execute(
-            select(func.count()).select_from(InvestigationCase).where(
-                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
-        )).scalar() or 0
-        scored = (await self.session.execute(select(func.count()).select_from(RiskScore))).scalar() or 0
+        ws = self.workspace_id
+        med_q = select(func.count()).select_from(MedicalClaim)
+        rx_q = select(func.count()).select_from(PharmacyClaim)
+        cases_q = select(func.count()).select_from(InvestigationCase)
+        active_q = select(func.count()).select_from(InvestigationCase).where(
+            InvestigationCase.status.in_(["open", "under_review", "escalated"]))
+        scored_q = select(func.count()).select_from(RiskScore)
+        if ws is not None:
+            med_q = med_q.where(MedicalClaim.workspace_id == ws)
+            rx_q = rx_q.where(PharmacyClaim.workspace_id == ws)
+            cases_q = cases_q.where(InvestigationCase.workspace_id == ws)
+            active_q = active_q.where(InvestigationCase.workspace_id == ws)
+            scored_q = scored_q.where(RiskScore.workspace_id == ws)
+        med = (await self.session.execute(med_q)).scalar() or 0
+        rx = (await self.session.execute(rx_q)).scalar() or 0
+        cases = (await self.session.execute(cases_q)).scalar() or 0
+        active = (await self.session.execute(active_q)).scalar() or 0
+        scored = (await self.session.execute(scored_q)).scalar() or 0
         return ChatResponse(
             response=f"**Pipeline Overview:**\n\n- **{med:,}** medical + **{rx:,}** pharmacy = **{med + rx:,}** claims\n"
                      f"- **{scored:,}** scored, **{med + rx - scored:,}** unscored\n"
@@ -1650,11 +1703,13 @@ class AgentService:
             sources_cited=sources)
 
     async def _answer_top_risk(self, sources: list[str]) -> ChatResponse:
-        cases = list((await self.session.execute(
-            select(InvestigationCase)
+        ws = self.workspace_id
+        q = (select(InvestigationCase)
             .where(InvestigationCase.status.in_(["open", "under_review", "escalated"]))
-            .order_by(InvestigationCase.risk_score.desc()).limit(10)
-        )).scalars())
+            .order_by(InvestigationCase.risk_score.desc()).limit(10))
+        if ws is not None:
+            q = q.where(InvestigationCase.workspace_id == ws)
+        cases = list((await self.session.execute(q)).scalars())
         if not cases:
             return ChatResponse(response="No active cases found.", sources_cited=sources)
         lines = [f"**Top {len(cases)} active cases:**\n"]
@@ -1663,11 +1718,13 @@ class AgentService:
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
     async def _answer_rules(self, sources: list[str]) -> ChatResponse:
-        top = list(await self.session.execute(
-            select(RuleResult.rule_id, func.count().label("cnt"))
-            .where(RuleResult.triggered == True)
-            .group_by(RuleResult.rule_id).order_by(func.count().desc()).limit(10)
-        ))
+        ws = self.workspace_id
+        rq = (select(RuleResult.rule_id, func.count().label("cnt"))
+            .where(RuleResult.triggered == True))
+        if ws is not None:
+            rq = rq.where(RuleResult.workspace_id == ws)
+        rq = rq.group_by(RuleResult.rule_id).order_by(func.count().desc()).limit(10)
+        top = list(await self.session.execute(rq))
         if not top:
             return ChatResponse(response="No rule results yet. Run the pipeline first.", sources_cited=sources)
         rm = {r.rule_id: r for r in (await self.session.execute(
@@ -1784,11 +1841,13 @@ class AgentService:
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
 
     async def _answer_provider(self, msg: str, sources: list[str]) -> ChatResponse:
+        ws = self.workspace_id
         npi_match = re.search(r'\b(\d{10})\b', msg)
         if npi_match:
-            prov = (await self.session.execute(
-                select(Provider).where(Provider.npi == npi_match.group(1))
-            )).scalar_one_or_none()
+            pq = select(Provider).where(Provider.npi == npi_match.group(1))
+            if ws is not None:
+                pq = pq.where(Provider.workspace_id == ws)
+            prov = (await self.session.execute(pq)).scalar_one_or_none()
             if prov:
                 oig = " **[OIG EXCLUDED]**" if prov.oig_excluded else ""
                 return ChatResponse(
@@ -1812,10 +1871,12 @@ class AgentService:
             sources_cited=sources)
 
     async def _answer_general(self, sources: list[str]) -> ChatResponse:
-        active = (await self.session.execute(
-            select(func.count()).select_from(InvestigationCase).where(
-                InvestigationCase.status.in_(["open", "under_review", "escalated"]))
-        )).scalar() or 0
+        ws = self.workspace_id
+        aq = select(func.count()).select_from(InvestigationCase).where(
+            InvestigationCase.status.in_(["open", "under_review", "escalated"]))
+        if ws is not None:
+            aq = aq.where(InvestigationCase.workspace_id == ws)
+        active = (await self.session.execute(aq)).scalar() or 0
         return ChatResponse(
             response=f"**{active}** active cases. Try: \"show stats\", \"top risk cases\", \"which rules trigger most?\"\n"
                      "Or **select a case** to investigate.",
