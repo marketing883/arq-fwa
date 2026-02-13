@@ -113,7 +113,7 @@ async def governance_health(
             "lineage_nodes": lineage_count,
             "lineage_24h": lineage_24h,
             "trust_profiles": trust_profiles,
-            "avg_trust_score": round(float(avg_trust), 3) if avg_trust else None,
+            "avg_trust_score": round(float(avg_trust), 3) if avg_trust is not None else None,
             "tokens_issued": tokens_issued,
             "tokens_24h": tokens_24h,
             "hitl_pending": hitl_pending,
@@ -129,7 +129,7 @@ async def governance_health(
             "signals_total": signals_total,
             "signals_24h": signals_24h,
             "adaptations": adaptations_total,
-            "avg_feedback_quality": round(float(avg_feedback), 3) if avg_feedback else None,
+            "avg_feedback_quality": round(float(avg_feedback), 3) if avg_feedback is not None else None,
         },
     }
 
@@ -240,7 +240,7 @@ async def list_lineage_nodes(
                 "node_type": n.node_type,
                 "agent_id": n.agent_id,
                 "action": n.action,
-                "trust_score": round(n.trust_score_at_action, 3) if n.trust_score_at_action else None,
+                "trust_score": round(n.trust_score_at_action, 3) if n.trust_score_at_action is not None else None,
                 "duration_ms": n.duration_ms,
                 "created_at": n.created_at.isoformat() if n.created_at else None,
             }
@@ -266,7 +266,7 @@ async def list_audit_receipts(
                 "action_type": r.action_type,
                 "agent_id": r.agent_id,
                 "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-                "action_risk_score": round(r.action_risk_score, 3) if r.action_risk_score else None,
+                "action_risk_score": round(r.action_risk_score, 3) if r.action_risk_score is not None else None,
                 "lineage_node_id": r.lineage_node_id,
                 "capability_token_id": r.capability_token_id,
                 "output_summary": r.output_summary,
@@ -384,9 +384,9 @@ async def signal_summary(
             {
                 "signal_type": row.signal_type,
                 "count": row.count,
-                "avg_value": round(float(row.avg_value), 4) if row.avg_value else None,
-                "min_value": round(float(row.min_value), 4) if row.min_value else None,
-                "max_value": round(float(row.max_value), 4) if row.max_value else None,
+                "avg_value": round(float(row.avg_value), 4) if row.avg_value is not None else None,
+                "min_value": round(float(row.min_value), 4) if row.min_value is not None else None,
+                "max_value": round(float(row.max_value), 4) if row.max_value is not None else None,
             }
             for row in result
         ]
@@ -408,7 +408,7 @@ async def list_adaptations(
             {
                 "event_id": e.event_id,
                 "action_type": e.action_type,
-                "drift_score": round(e.drift_score, 3) if e.drift_score else None,
+                "drift_score": round(e.drift_score, 3) if e.drift_score is not None else None,
                 "reason": e.reason,
                 "parameters_before": e.parameters_before,
                 "parameters_after": e.parameters_after,
@@ -435,7 +435,7 @@ async def list_feedback(
                 "feedback_id": f.feedback_id,
                 "query": f.query[:200],
                 "response_quality": round(f.response_quality, 3),
-                "relevance_score": round(f.relevance_score, 3) if f.relevance_score else None,
+                "relevance_score": round(f.relevance_score, 3) if f.relevance_score is not None else None,
                 "feedback_source": f.feedback_source,
                 "created_at": f.created_at.isoformat() if f.created_at else None,
             }
