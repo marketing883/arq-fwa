@@ -197,6 +197,11 @@ else:
     echo "  ✓ Governance data seeded"
 } || echo "  ✓ Governance seed skipped"
 
-# 6. Start the application
-echo "[6/6] Starting uvicorn..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+# 6. Start the application (or custom command if provided)
+if [ $# -gt 0 ]; then
+    echo "[6/6] Starting custom command: $@"
+    exec "$@"
+else
+    echo "[6/6] Starting uvicorn..."
+    exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+fi

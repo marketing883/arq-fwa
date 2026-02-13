@@ -62,9 +62,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
+      backend:
         condition: service_healthy
     restart: unless-stopped
 
