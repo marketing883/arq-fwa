@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { BASE_PATH } from "@/lib/api";
 
 export interface WorkspaceSummary {
   workspace_id: string;
@@ -40,7 +41,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const refreshWorkspaces = useCallback(async () => {
     try {
-      const res = await fetch("/api/workspaces");
+      const res = await fetch(`${BASE_PATH}/api/workspaces`);
       if (res.ok) {
         const data = await res.json();
         setWorkspaces(data.workspaces || []);

@@ -2,7 +2,8 @@
  * API client for ArqAI FWA Detection backend.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
+export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || `${BASE_PATH}/api`;
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;

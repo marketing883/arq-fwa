@@ -12,6 +12,7 @@ import {
   FileSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BASE_PATH } from "@/lib/api";
 import { useWorkspace } from "@/lib/workspace-context";
 
 /* ------------------------------------------------------------------ */
@@ -202,7 +203,7 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
     abortRef.current = controller;
 
     try {
-      const res = await fetch("/api/pipeline/run-stream", {
+      const res = await fetch(`${BASE_PATH}/api/pipeline/run-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ limit, workspace_id: resolvedWorkspace }),

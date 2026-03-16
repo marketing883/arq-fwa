@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  basePath: "/fwa",
   async rewrites() {
     // Proxy every API prefix to the FastAPI backend EXCEPT /api/agents/*.
     // Agent endpoints are served by a Next.js API route handler

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
+import { BASE_PATH } from "@/lib/api";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -190,7 +191,7 @@ export default function UploadPage() {
 
     try {
       // 1. Create workspace
-      const wsRes = await fetch("/api/workspaces", {
+      const wsRes = await fetch(`${BASE_PATH}/api/workspaces`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -212,7 +213,7 @@ export default function UploadPage() {
       form.append("file", file);
       form.append("claim_type", claimType);
 
-      const prevRes = await fetch(`/api/workspaces/${wsId}/upload/preview`, {
+      const prevRes = await fetch(`${BASE_PATH}/api/workspaces/${wsId}/upload/preview`, {
         method: "POST",
         body: form,
       });
@@ -249,7 +250,7 @@ export default function UploadPage() {
       form.append("claim_type", claimType);
       form.append("mapping", JSON.stringify(columnMapping));
 
-      const res = await fetch(`/api/workspaces/${workspaceId}/upload/ingest`, {
+      const res = await fetch(`${BASE_PATH}/api/workspaces/${workspaceId}/upload/ingest`, {
         method: "POST",
         body: form,
       });
