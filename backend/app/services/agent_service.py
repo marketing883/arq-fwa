@@ -1540,22 +1540,46 @@ class AgentService:
             if "error" in ctx:
                 return ChatResponse(response=ctx["error"], sources_cited=sources)
             return self._answer_case_question(msg, ctx, sources)
-        if _matches_any(msg, ["how many", "total", "count", "overview", "summary", "stats", "dashboard"]):
-            return await self._answer_stats(sources)
-        if _matches_any(msg, ["high risk", "critical", "top risk", "worst", "riskiest"]):
+
+        # Detect intent signals up-front so compound queries are handled correctly
+        is_risk_q = _matches_any(msg, ["high risk", "critical", "top risk", "worst", "riskiest"])
+        is_financial_q = _matches_any(msg, [
+            "amount", "save", "saved", "saving", "cost", "dollar", "money", "financial",
+            "prevent", "prevention", "recover", "fraud amount", "billed", "paid",
+            "loss", "losses", "revenue", "impact", "value", "worth", "expense",
+            "cumulative",
+        ])
+        is_stats_q = _matches_any(msg, ["overview", "summary", "stats", "dashboard"])
+        is_count_q = _matches_any(msg, ["how many", "total", "count"])
+
+        # Compound: risk + financial → critical/high cases with financial data
+        if is_risk_q and is_financial_q:
+            risk_level = "critical" if "critical" in msg else "high" if "high" in msg else None
+            return await self._answer_risk_financial(sources, risk_level=risk_level)
+        # Compound: count/total + financial → per-case financial
+        if is_count_q and is_financial_q:
+            return await self._answer_per_case_financial(msg, sources)
+        # Compound: count/total + risk → critical/high case count with financial summary
+        if is_count_q and is_risk_q:
+            risk_level = "critical" if "critical" in msg else "high" if "high" in msg else None
+            return await self._answer_risk_financial(sources, risk_level=risk_level)
+
+        # Financial queries (check before generic stats so "value", "cumulative" etc. aren't lost)
+        if is_financial_q:
+            if _matches_any(msg, ["how many", "which case", "cases where", "per case", "each case",
+                                   "more than", "greater than", "above", "exceed", "over"]):
+                return await self._answer_per_case_financial(msg, sources)
+            return await self._answer_financial(sources)
+        # Risk queries
+        if is_risk_q:
             return await self._answer_top_risk(sources)
         if _matches_any(msg, ["rule", "what rules", "which rules", "detection", "trigger"]):
             return await self._answer_rules(sources)
         if _matches_any(msg, ["provider", "doctor", "npi"]):
             return await self._answer_provider(msg, sources)
-        if _matches_any(msg, ["amount", "save", "saved", "saving", "cost", "dollar", "money", "financial",
-                               "prevent", "prevention", "recover", "fraud amount", "billed", "paid",
-                               "loss", "losses", "revenue", "impact", "value", "worth", "expense"]):
-            # Check if it's a per-case financial question
-            if _matches_any(msg, ["how many", "which case", "cases where", "per case", "each case",
-                                   "more than", "greater than", "above", "exceed", "over"]):
-                return await self._answer_per_case_financial(msg, sources)
-            return await self._answer_financial(sources)
+        # Generic stats / overview (least specific — checked last among data queries)
+        if is_stats_q or is_count_q:
+            return await self._answer_stats(sources)
         if _matches_any(msg, ["help", "what can you", "capabilities"]):
             return self._answer_help(sources)
         return await self._answer_general(sources)
@@ -1647,9 +1671,106 @@ class AgentService:
         if not cases:
             return ChatResponse(response="No active cases found.", sources_cited=sources)
         lines = [f"**Top {len(cases)} active cases:**\n"]
+        lines.append("| Case ID | Score | Risk | Priority | Billed | Status |")
+        lines.append("|---------|-------|------|----------|--------|--------|")
         for c in cases:
-            lines.append(f"- **{c.case_id}** — {float(c.risk_score):.1f} ({c.risk_level}), {c.priority}")
+            billed = await self._get_case_billed_amount(c)
+            lines.append(
+                f"| **{c.case_id}** | {float(c.risk_score):.1f} | {c.risk_level} | "
+                f"{c.priority} | ${billed:,.2f} | {c.status} |"
+            )
         return ChatResponse(response="\n".join(lines), sources_cited=sources)
+
+    async def _answer_risk_financial(self, sources: list[str], risk_level: str | None = None) -> ChatResponse:
+        """Answer compound queries about critical/high-risk cases with financial data."""
+        if self._max_tier < Sensitivity.SENSITIVE:
+            return ChatResponse(
+                response="**Access Restricted**\n\nFinancial data requires investigator-level "
+                         "access or higher.",
+                sources_cited=["policy:access-denied"], confidence="high",
+            )
+
+        # Query cases filtered by risk level
+        q = select(InvestigationCase).where(
+            InvestigationCase.status.in_(["open", "under_review", "escalated"])
+        )
+        if risk_level:
+            q = q.where(InvestigationCase.risk_level == risk_level)
+        else:
+            q = q.where(InvestigationCase.risk_level.in_(["critical", "high"]))
+        q = q.order_by(InvestigationCase.risk_score.desc())
+        cases = list((await self.session.execute(q)).scalars())
+
+        if not cases:
+            label = risk_level.upper() if risk_level else "CRITICAL/HIGH"
+            return ChatResponse(response=f"No active {label} cases found.", sources_cited=sources)
+
+        # Compute financial totals
+        total_billed = 0.0
+        total_paid = 0.0
+        case_rows: list[dict] = []
+        for c in cases:
+            billed, paid = await self._get_case_billed_paid(c)
+            total_billed += billed
+            total_paid += paid
+            case_rows.append({
+                "case_id": c.case_id, "risk_score": float(c.risk_score),
+                "risk_level": c.risk_level, "priority": c.priority,
+                "billed": billed, "paid": paid,
+                "savings": round(billed - paid, 2), "status": c.status,
+            })
+
+        total_savings = round(total_billed - total_paid, 2)
+        label = risk_level.upper() if risk_level else "CRITICAL/HIGH"
+        sources.append("database:risk-financial-summary")
+
+        lines = [f"**{label} Cases — Financial Summary**\n"]
+        lines.append(f"- **{len(cases)}** {label.lower()} cases identified")
+        lines.append(f"- **Total Fraud Identified (billed):** **${total_billed:,.2f}**")
+        lines.append(f"- **Cumulative Value (billed − paid):** **${total_savings:,.2f}**\n")
+
+        # Show top 10 in a table
+        top = case_rows[:10]
+        lines.append("| Case ID | Score | Priority | Billed | Paid | Savings | Status |")
+        lines.append("|---------|-------|----------|--------|------|---------|--------|")
+        for r in top:
+            lines.append(
+                f"| **{r['case_id']}** | {r['risk_score']:.1f} | {r['priority']} | "
+                f"${r['billed']:,.2f} | ${r['paid']:,.2f} | "
+                f"**${r['savings']:,.2f}** | {r['status']} |"
+            )
+        if len(cases) > 10:
+            lines.append(f"\n*...and {len(cases) - 10} more {label.lower()} cases*")
+
+        return ChatResponse(response="\n".join(lines), sources_cited=sources)
+
+    async def _get_case_billed_amount(self, case: InvestigationCase) -> float:
+        """Get billed amount for a case's underlying claim."""
+        if case.claim_type == "medical":
+            claim = (await self.session.execute(
+                select(MedicalClaim.amount_billed).where(MedicalClaim.claim_id == case.claim_id)
+            )).scalar()
+        else:
+            claim = (await self.session.execute(
+                select(PharmacyClaim.amount_billed).where(PharmacyClaim.claim_id == case.claim_id)
+            )).scalar()
+        return float(claim) if claim else 0.0
+
+    async def _get_case_billed_paid(self, case: InvestigationCase) -> tuple[float, float]:
+        """Get (billed, paid) for a case's underlying claim."""
+        if case.claim_type == "medical":
+            row = (await self.session.execute(
+                select(MedicalClaim.amount_billed, MedicalClaim.amount_paid)
+                .where(MedicalClaim.claim_id == case.claim_id)
+            )).first()
+        else:
+            row = (await self.session.execute(
+                select(PharmacyClaim.amount_billed, PharmacyClaim.amount_paid)
+                .where(PharmacyClaim.claim_id == case.claim_id)
+            )).first()
+        if row:
+            return float(row[0] or 0), float(row[1] or 0)
+        return 0.0, 0.0
 
     async def _answer_rules(self, sources: list[str]) -> ChatResponse:
         top = list(await self.session.execute(

@@ -24,7 +24,7 @@ INTENT_PATTERNS: list[tuple[list[str], str, OpcodeType]] = [
     # Financial queries
     (["amount", "save", "saved", "saving", "cost", "dollar", "money", "financial",
       "prevent", "prevention", "recover", "fraud amount", "billed", "paid",
-      "loss", "revenue", "impact", "worth", "expense"],
+      "loss", "revenue", "impact", "worth", "expense", "cumulative", "value"],
      "query_financial_summary", OpcodeType.AGGREGATE_FINANCIAL),
 
     # Case queries
