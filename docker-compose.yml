@@ -27,6 +27,20 @@ services:
       timeout: 5s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags | grep -q '${LLM_MODEL:-qwen3:8b}' || (ollama pull ${LLM_MODEL:-qwen3:8b} && false)"]
+      interval: 10s
+      timeout: 120s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
   backend:
     build: ./backend
     ports:
@@ -34,7 +48,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arqai}:${POSTGRES_PASSWORD:-arqai_dev_password}@postgres:5432/${POSTGRES_DB:-arqai_fwa}
       REDIS_URL: redis://redis:6379/0
-      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-development}
@@ -43,6 +57,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
@@ -58,13 +74,15 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arqai}:${POSTGRES_PASSWORD:-arqai_dev_password}@postgres:5432/${POSTGRES_DB:-arqai_fwa}
       REDIS_URL: redis://redis:6379/0
-      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     restart: unless-stopped
 
@@ -95,3 +113,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ollama_data:

@@ -186,8 +186,14 @@ class AgentService:
     # ------------------------------------------------------------------
 
     async def _check_ollama(self) -> bool:
+        now = time.time()
+        # Cache positive results for 60s; retry negative results after 15s
         if self._available is not None:
-            return self._available
+            elapsed = now - getattr(self, "_available_checked_at", 0)
+            if self._available and elapsed < 60:
+                return True
+            if not self._available and elapsed < 15:
+                return False
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 try:
@@ -196,6 +202,7 @@ class AgentService:
                     )
                     if show.status_code == 200:
                         self._available = True
+                        self._available_checked_at = now
                         return True
                 except Exception:
                     pass
@@ -208,6 +215,7 @@ class AgentService:
         except Exception as exc:
             logger.warning("Ollama check failed: %s", exc)
             self._available = False
+        self._available_checked_at = now
         return self._available
 
     @staticmethod
