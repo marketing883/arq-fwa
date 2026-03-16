@@ -3,7 +3,6 @@ import time
 import traceback
 from contextlib import asynccontextmanager
 
-import httpx
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -147,19 +146,11 @@ async def health_check():
     except Exception as exc:
         components["redis"] = {"status": "disconnected", "error": str(exc)}
 
-    # Ollama
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.post(
-                f"{settings.ollama_url}/api/show",
-                json={"name": settings.llm_model},
-            )
-            if resp.status_code == 200:
-                components["ollama"] = {"status": "ready", "model": settings.llm_model}
-            else:
-                components["ollama"] = {"status": "loading", "model": settings.llm_model}
-    except Exception:
-        components["ollama"] = {"status": "unavailable"}
+    # LLM (Anthropic API)
+    if settings.anthropic_api_key:
+        components["llm"] = {"status": "ready", "model": settings.llm_model}
+    else:
+        components["llm"] = {"status": "unavailable", "detail": "ANTHROPIC_API_KEY not set"}
 
     # Overall status
     db_ok = components["database"]["status"] == "connected"

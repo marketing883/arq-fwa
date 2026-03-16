@@ -1,10 +1,10 @@
 """
 Agent Service — AI-powered investigation assistant.
 
-Uses a local SLM via Ollama for case investigation and chat.
-When the model is still loading or unavailable, falls back to a data-driven
-assistant that queries the database to answer questions about cases, claims,
-rules, providers, and pipeline statistics.
+Uses the Anthropic Messages API (Claude) for case investigation and chat.
+When the API key is missing or the service is unavailable, falls back to a
+data-driven assistant that queries the database to answer questions about
+cases, claims, rules, providers, and pipeline statistics.
 
 Features:
 - Conversation memory (session-based)
@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import AsyncIterator
 
-import httpx
+import anthropic
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -150,9 +150,9 @@ class AgentService:
     def __init__(self, session: AsyncSession, workspace_id: int | None = None,
                  ctx: RequestContext | None = None):
         self.session = session
-        self.ollama_url = settings.ollama_url
         self.model = settings.llm_model
-        self._available: bool | None = None
+        self._anthropic = anthropic.AsyncAnthropic() if settings.anthropic_api_key else None
+        self._available: bool | None = True if self._anthropic else False
         self.workspace_id = workspace_id
         self.ctx = ctx
         # Resolve the caller's maximum data sensitivity tier
@@ -182,41 +182,12 @@ class AgentService:
         self._rag_params = RAGParameters(llm_model=self.model)
 
     # ------------------------------------------------------------------
-    # Ollama
+    # Anthropic API
     # ------------------------------------------------------------------
 
     async def _check_ollama(self) -> bool:
-        now = time.time()
-        # Cache positive results for 60s; retry negative results after 15s
-        if self._available is not None:
-            elapsed = now - getattr(self, "_available_checked_at", 0)
-            if self._available and elapsed < 60:
-                return True
-            if not self._available and elapsed < 15:
-                return False
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                try:
-                    show = await client.post(
-                        f"{self.ollama_url}/api/show", json={"name": self.model},
-                    )
-                    if show.status_code == 200:
-                        self._available = True
-                        self._available_checked_at = now
-                        return True
-                except Exception:
-                    pass
-                resp = await client.get(f"{self.ollama_url}/api/tags")
-                if resp.status_code == 200:
-                    models = [m.get("name", "") for m in resp.json().get("models", [])]
-                    self._available = any(self.model == m or self.model in m for m in models)
-                else:
-                    self._available = False
-        except Exception as exc:
-            logger.warning("Ollama check failed: %s", exc)
-            self._available = False
-        self._available_checked_at = now
-        return self._available
+        """Check if the Anthropic API client is configured."""
+        return self._anthropic is not None
 
     @staticmethod
     def _strip_think_tags(text: str) -> str:
@@ -227,64 +198,45 @@ class AgentService:
             return None
         try:
             messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
             if history:
                 messages.extend(history)
             messages.append({"role": "user", "content": prompt})
 
-            timeout = httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(
-                    f"{self.ollama_url}/api/chat",
-                    json={"model": self.model, "messages": messages, "stream": False,
-                           "options": {"temperature": 0.3, "num_predict": 2048}},
-                )
-                if resp.status_code == 200:
-                    content = resp.json().get("message", {}).get("content", "")
-                    return self._strip_think_tags(content)
-        except httpx.TimeoutException:
-            self._available = None
+            resp = await self._anthropic.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system=system_prompt or anthropic.NOT_GIVEN,
+                messages=messages,
+                temperature=0.3,
+            )
+            content = resp.content[0].text if resp.content else ""
+            return self._strip_think_tags(content)
+        except anthropic.APITimeoutError:
+            logger.warning("Anthropic API timeout")
         except Exception as e:
-            logger.warning("Ollama call failed: %s", e)
-            self._available = None
+            logger.warning("Anthropic call failed: %s", e)
         return None
 
     async def _call_ollama_stream(self, prompt: str, system_prompt: str = "", history: list[dict] | None = None) -> AsyncIterator[str]:
         if not await self._check_ollama():
             return
         messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": prompt})
 
-        timeout = httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0)
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream(
-                    "POST", f"{self.ollama_url}/api/chat",
-                    json={"model": self.model, "messages": messages, "stream": True,
-                           "options": {"temperature": 0.3, "num_predict": 2048}},
-                ) as resp:
-                    if resp.status_code != 200:
-                        return
-                    async for line in resp.aiter_lines():
-                        if not line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            token = data.get("message", {}).get("content", "")
-                            if token:
-                                yield token
-                            if data.get("done"):
-                                break
-                        except json.JSONDecodeError:
-                            continue
+            async with self._anthropic.messages.stream(
+                model=self.model,
+                max_tokens=2048,
+                system=system_prompt or anthropic.NOT_GIVEN,
+                messages=messages,
+                temperature=0.3,
+            ) as stream:
+                async for token in stream.text_stream:
+                    yield token
         except Exception as e:
-            logger.warning("Ollama stream failed: %s", e)
-            self._available = None
+            logger.warning("Anthropic stream failed: %s", e)
 
     # ------------------------------------------------------------------
     # Tool execution (ReAct)

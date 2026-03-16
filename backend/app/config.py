@@ -9,9 +9,9 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
-    # Ollama
-    ollama_url: str = "http://localhost:11434"
-    llm_model: str = "qwen3:8b"
+    # Anthropic
+    anthropic_api_key: str = ""
+    llm_model: str = "claude-haiku-4-5-20251001"
 
     # App
     secret_key: str = "dev-secret-key-change-in-production"

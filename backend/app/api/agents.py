@@ -8,7 +8,6 @@ import json
 import logging
 from uuid import uuid4
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -81,37 +80,8 @@ async def _resolve_workspace(db: AsyncSession, workspace_id: str | None) -> int 
 async def agent_status():
     """Check if the AI model is available."""
     model = settings.llm_model
-    base_url = settings.ollama_url
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            try:
-                show_resp = await client.post(
-                    f"{base_url}/api/show", json={"name": model},
-                )
-                if show_resp.status_code == 200:
-                    return {"status": "ready", "model": model, "mode": "slm"}
-            except Exception:
-                pass
-
-            resp = await client.get(f"{base_url}/api/tags")
-            if resp.status_code == 200:
-                tags = resp.json()
-                models = [m.get("name", "") for m in tags.get("models", [])]
-                model_base = model.split(":")[0]
-                model_tag = model.split(":")[-1] if ":" in model else ""
-                for m in models:
-                    if m == model or model in m:
-                        return {"status": "ready", "model": model, "mode": "slm"}
-                    m_base = m.split(":")[0]
-                    m_tag = m.split(":")[-1] if ":" in m else ""
-                    if m_base == model_base and (m_tag == model_tag or model_tag in m_tag):
-                        return {"status": "ready", "model": model, "mode": "slm"}
-                return {
-                    "status": "loading", "model": model, "mode": "data-engine",
-                    "detail": f"Model {model} not found. Available: {', '.join(models) or 'none'}",
-                }
-    except Exception as exc:
-        logger.warning("Cannot reach Ollama at %s: %s", base_url, exc)
+    if settings.anthropic_api_key:
+        return {"status": "ready", "model": model, "mode": "anthropic"}
     return {"status": "ready", "model": "data-engine", "mode": "data-engine"}
 
 
