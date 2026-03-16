@@ -9,8 +9,8 @@ export default function PipelinePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Detection Pipeline</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-t-primary">Detection Pipeline</h1>
+        <p className="text-sm text-t-muted mt-1">
           Run the full FWA detection pipeline with real-time progress tracking
         </p>
       </div>

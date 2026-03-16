@@ -36,7 +36,6 @@ export function Sidebar() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -51,41 +50,50 @@ export function Sidebar() {
   const activeLabel = activeWs ? activeWs.name : "All Workspaces";
 
   return (
-    <aside className="w-64 bg-gray-900 text-white flex flex-col h-screen shrink-0">
-      <div className="p-5 border-b border-gray-700">
-        <h1 className="text-lg font-bold tracking-tight">ArqAI</h1>
-        <p className="text-xs text-gray-400 mt-0.5">
+    <aside className="w-64 bg-surface-1 border-r border-white/[0.06] text-t-primary flex flex-col h-screen shrink-0">
+      {/* Logo */}
+      <div className="p-5 border-b border-white/[0.06]">
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-lg font-bold tracking-tight text-t-primary">
+            Arq
+          </h1>
+          <span className="text-lg font-bold tracking-tight text-arq-blue-400">
+            AI
+          </span>
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-arq-lime-400 -mt-2" />
+        </div>
+        <p className="text-[11px] text-t-muted mt-0.5 tracking-wide">
           FWA Detection &amp; Prevention
         </p>
       </div>
 
       {/* Workspace Switcher */}
       <div className="px-3 pt-4 pb-2" ref={dropdownRef}>
-        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider px-2 mb-1.5">
+        <p className="text-[10px] font-medium text-t-muted uppercase tracking-wider px-2 mb-1.5">
           Workspace
         </p>
         <button
           onClick={() => setDropdownOpen((o) => !o)}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-gray-800 hover:bg-gray-750 text-sm transition-colors text-left"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-white/[0.06] hover:bg-surface-3 text-sm transition-colors text-left"
         >
-          <Building2 size={14} className="text-gray-400 shrink-0" />
-          <span className="flex-1 truncate text-gray-200">
+          <Building2 size={14} className="text-t-muted shrink-0" />
+          <span className="flex-1 truncate text-t-secondary">
             {loading ? "Loading..." : activeLabel}
           </span>
           <ChevronDown
             size={14}
-            className={`text-gray-500 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
+            className={`text-t-muted transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
           />
         </button>
         {dropdownOpen && !loading && (
-          <div className="mt-1 rounded-md bg-gray-800 border border-gray-700 shadow-lg py-1 max-h-60 overflow-y-auto z-50">
+          <div className="mt-1 rounded-lg bg-surface-2 border border-white/[0.08] shadow-lg shadow-black/40 py-1 max-h-60 overflow-y-auto z-50">
             <button
               onClick={() => {
                 setActiveWorkspace(null);
                 setDropdownOpen(false);
               }}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 transition-colors ${
-                activeWorkspace === null ? "text-blue-400 font-medium" : "text-gray-300"
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-3 transition-colors ${
+                activeWorkspace === null ? "text-arq-lime-400 font-medium" : "text-t-secondary"
               }`}
             >
               All Workspaces
@@ -97,15 +105,15 @@ export function Sidebar() {
                   setActiveWorkspace(ws.workspace_id);
                   setDropdownOpen(false);
                 }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 transition-colors ${
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-3 transition-colors ${
                   activeWorkspace === ws.workspace_id
-                    ? "text-blue-400 font-medium"
-                    : "text-gray-300"
+                    ? "text-arq-lime-400 font-medium"
+                    : "text-t-secondary"
                 }`}
               >
                 <div className="truncate">{ws.name}</div>
                 {ws.client_name && (
-                  <div className="text-[10px] text-gray-500 truncate">
+                  <div className="text-[10px] text-t-muted truncate">
                     {ws.client_name}
                   </div>
                 )}
@@ -123,19 +131,20 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
-              className={`flex items-center gap-3 px-5 py-2.5 text-sm transition-colors ${
+              className={`flex items-center gap-3 mx-2 px-3 py-2.5 rounded-lg text-sm transition-all ${
                 active
-                  ? "bg-primary-700 text-white"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                  ? "bg-arq-blue-500/15 text-t-primary border-l-2 border-arq-lime-400 pl-[10px]"
+                  : "text-t-muted hover:bg-surface-2 hover:text-t-primary"
               }`}
             >
-              <Icon size={18} />
+              <Icon size={18} className={active ? "text-arq-blue-400" : ""} />
               {label}
             </Link>
           );
         })}
       </nav>
-      <div className="p-4 border-t border-gray-700 text-xs text-gray-500">
+
+      <div className="p-4 border-t border-white/[0.06] text-[11px] text-t-muted">
         v0.1.0 &middot; POC
       </div>
     </aside>

@@ -115,24 +115,24 @@ export default function CompliancePage() {
     <div className="space-y-6">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">
+        <h1 className="text-2xl font-bold text-t-primary">
           Compliance &amp; Audit
         </h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-t-muted mt-1">
           Audit trail and blockchain-style integrity verification
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-white/[0.06]">
         <nav className="-mb-px flex gap-6">
           <button
             onClick={() => setActiveTab("audit")}
             className={cn(
               "pb-3 text-sm font-medium border-b-2 transition-colors",
               activeTab === "audit"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                ? "border-arq-blue-400 text-arq-blue-400"
+                : "border-transparent text-t-muted hover:text-t-secondary hover:border-gray-300"
             )}
           >
             Audit Log
@@ -142,8 +142,8 @@ export default function CompliancePage() {
             className={cn(
               "pb-3 text-sm font-medium border-b-2 transition-colors",
               activeTab === "integrity"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                ? "border-arq-blue-400 text-arq-blue-400"
+                : "border-transparent text-t-muted hover:text-t-secondary hover:border-gray-300"
             )}
           >
             Integrity Check
@@ -155,11 +155,11 @@ export default function CompliancePage() {
       {activeTab === "audit" && (
         <div className="space-y-4">
           {/* Filter Bar */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm flex flex-wrap items-center gap-4">
+          <div className="glass-card rounded-lg border border-white/[0.06] p-4 flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
               <label
                 htmlFor="event-type"
-                className="text-sm font-medium text-gray-700"
+                className="text-sm font-medium text-t-secondary"
               >
                 Event Type
               </label>
@@ -167,7 +167,7 @@ export default function CompliancePage() {
                 id="event-type"
                 value={eventTypeFilter}
                 onChange={(e) => handleEventTypeChange(e.target.value)}
-                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                className="rounded-md border bg-surface-2 border-surface-3 text-t-primary px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
               >
                 {EVENT_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -179,7 +179,7 @@ export default function CompliancePage() {
             <div className="flex items-center gap-2">
               <label
                 htmlFor="resource-type"
-                className="text-sm font-medium text-gray-700"
+                className="text-sm font-medium text-t-secondary"
               >
                 Resource Type
               </label>
@@ -187,7 +187,7 @@ export default function CompliancePage() {
                 id="resource-type"
                 value={resourceTypeFilter}
                 onChange={(e) => handleResourceTypeChange(e.target.value)}
-                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                className="rounded-md border bg-surface-2 border-surface-3 text-t-primary px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
               >
                 {RESOURCE_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -199,22 +199,22 @@ export default function CompliancePage() {
           </div>
 
           {/* Audit Table */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
             {auditLoading ? (
               <div className="p-6 space-y-3">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div
                     key={i}
-                    className="animate-pulse rounded bg-gray-200 h-10 w-full"
+                    className="animate-pulse rounded bg-surface-2 h-10 w-full"
                   />
                 ))}
               </div>
             ) : auditData && auditData.items.length > 0 ? (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="dark-table w-full text-sm">
                     <thead>
-                      <tr className="bg-gray-50 text-left text-gray-600">
+                      <tr>
                         <th className="px-4 py-3 font-medium">Timestamp</th>
                         <th className="px-4 py-3 font-medium">Event Type</th>
                         <th className="px-4 py-3 font-medium">Actor</th>
@@ -223,7 +223,7 @@ export default function CompliancePage() {
                         <th className="px-4 py-3 font-medium">Hash</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-white/[0.06]">
                       {auditData.items.map((entry) => (
                         <AuditRow
                           key={entry.id}
@@ -241,20 +241,20 @@ export default function CompliancePage() {
                 </div>
 
                 {/* Pagination */}
-                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+                <div className="flex items-center justify-between px-4 py-3 border-t border-white/[0.06] bg-surface-2">
                   <button
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page <= 1}
                     className={cn(
                       "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                       page <= 1
-                        ? "text-gray-400 cursor-not-allowed"
-                        : "text-gray-700 hover:bg-gray-200"
+                        ? "text-t-muted cursor-not-allowed"
+                        : "text-t-secondary hover:bg-surface-2/40"
                     )}
                   >
                     Previous
                   </button>
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-t-secondary">
                     Page {auditData.page} of {auditData.pages}
                   </span>
                   <button
@@ -265,8 +265,8 @@ export default function CompliancePage() {
                     className={cn(
                       "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                       page >= auditData.pages
-                        ? "text-gray-400 cursor-not-allowed"
-                        : "text-gray-700 hover:bg-gray-200"
+                        ? "text-t-muted cursor-not-allowed"
+                        : "text-t-secondary hover:bg-surface-2/40"
                     )}
                   >
                     Next
@@ -274,7 +274,7 @@ export default function CompliancePage() {
                 </div>
               </>
             ) : (
-              <div className="p-12 text-center text-gray-400">
+              <div className="p-12 text-center text-t-muted">
                 No audit entries found.
               </div>
             )}
@@ -285,13 +285,13 @@ export default function CompliancePage() {
       {/* ── Integrity Check Tab ── */}
       {activeTab === "integrity" && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 p-8 shadow-sm flex flex-col items-center gap-6">
-            <Shield className="w-16 h-16 text-gray-300" />
+          <div className="glass-card rounded-lg border border-white/[0.06] p-8 flex flex-col items-center gap-6">
+            <Shield className="w-16 h-16 text-t-muted" />
             <div className="text-center">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-t-primary">
                 Chain Integrity Verification
               </h2>
-              <p className="text-sm text-gray-500 mt-1 max-w-md">
+              <p className="text-sm text-t-muted mt-1 max-w-md">
                 Verify the hash chain of all audit entries to ensure no records
                 have been tampered with.
               </p>
@@ -302,8 +302,8 @@ export default function CompliancePage() {
               className={cn(
                 "inline-flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-medium transition-colors",
                 integrityLoading
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
+                  ? "bg-surface-2 text-t-muted cursor-not-allowed"
+                  : "bg-arq-blue-500 text-white hover:bg-arq-blue-600"
               )}
             >
               {integrityLoading ? (
@@ -317,7 +317,7 @@ export default function CompliancePage() {
             </button>
 
             {lastCheckTime && (
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-t-muted">
                 Last checked:{" "}
                 {lastCheckTime.toLocaleString("en-US", {
                   year: "numeric",
@@ -335,19 +335,19 @@ export default function CompliancePage() {
           {integrityResult && (
             <div
               className={cn(
-                "bg-white rounded-lg border shadow-sm p-8 flex flex-col items-center gap-4",
+                "glass-card rounded-lg border p-8 flex flex-col items-center gap-4",
                 integrityResult.valid
-                  ? "border-green-300"
-                  : "border-red-300"
+                  ? "border-green-500/30"
+                  : "border-red-500/30"
               )}
             >
               {integrityResult.valid ? (
                 <>
                   <CheckCircle className="w-20 h-20 text-green-500" />
-                  <h3 className="text-xl font-bold text-green-700">
+                  <h3 className="text-xl font-bold text-green-400">
                     Chain integrity verified.
                   </h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-t-secondary">
                     {integrityResult.entries_checked} entries checked. All hashes
                     are consistent.
                   </p>
@@ -355,16 +355,16 @@ export default function CompliancePage() {
               ) : (
                 <>
                   <XCircle className="w-20 h-20 text-red-500" />
-                  <h3 className="text-xl font-bold text-red-700">
+                  <h3 className="text-xl font-bold text-red-400">
                     Chain integrity broken
                   </h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-t-secondary">
                     {integrityResult.first_invalid
                       ? `Chain broken at entry: ${integrityResult.first_invalid}`
                       : "Unable to verify chain integrity."}
                   </p>
                   {integrityResult.entries_checked > 0 && (
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-t-muted">
                       {integrityResult.entries_checked} entries were checked
                       before the break was found.
                     </p>
@@ -394,19 +394,19 @@ function AuditRow({
     <>
       <tr
         onClick={onToggle}
-        className="hover:bg-gray-50 cursor-pointer transition-colors"
+        className="hover:bg-surface-2/40 cursor-pointer transition-colors"
       >
-        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+        <td className="px-4 py-3 text-t-secondary whitespace-nowrap">
           {formatDateTime(entry.created_at)}
         </td>
         <td className="px-4 py-3">
-          <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+          <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-arq-blue-500/20 text-arq-blue-400">
             {entry.event_type.replace(/_/g, " ")}
           </span>
         </td>
-        <td className="px-4 py-3 text-gray-700">{entry.actor}</td>
-        <td className="px-4 py-3 text-gray-700">{entry.action}</td>
-        <td className="px-4 py-3 text-gray-600">
+        <td className="px-4 py-3 text-t-secondary">{entry.actor}</td>
+        <td className="px-4 py-3 text-t-secondary">{entry.action}</td>
+        <td className="px-4 py-3 text-t-secondary">
           {entry.resource_type && (
             <span className="text-xs">
               {entry.resource_type}
@@ -414,41 +414,41 @@ function AuditRow({
             </span>
           )}
           {!entry.resource_type && (
-            <span className="text-gray-400">--</span>
+            <span className="text-t-muted">--</span>
           )}
         </td>
         <td className="px-4 py-3">
-          <code className="font-mono text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+          <code className="font-mono text-xs text-t-muted bg-surface-2 px-1.5 py-0.5 rounded">
             {entry.current_hash.slice(0, 12)}
           </code>
         </td>
       </tr>
       {expanded && (
-        <tr className="bg-gray-50">
+        <tr className="bg-surface-2">
           <td colSpan={6} className="px-4 py-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                <h4 className="text-xs font-semibold text-t-muted uppercase mb-2">
                   Details
                 </h4>
-                <pre className="text-xs bg-gray-100 rounded p-3 overflow-x-auto max-h-48 text-gray-700 font-mono">
+                <pre className="text-xs bg-surface-2 rounded p-3 overflow-x-auto max-h-48 text-t-secondary font-mono">
                   {JSON.stringify(entry.details, null, 2)}
                 </pre>
               </div>
               <div>
-                <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                <h4 className="text-xs font-semibold text-t-muted uppercase mb-2">
                   Hash Information
                 </h4>
                 <div className="space-y-2">
                   <div>
-                    <span className="text-xs text-gray-500">Event ID: </span>
-                    <code className="font-mono text-xs text-gray-700">
+                    <span className="text-xs text-t-muted">Event ID: </span>
+                    <code className="font-mono text-xs text-t-secondary">
                       {entry.event_id}
                     </code>
                   </div>
                   <div>
-                    <span className="text-xs text-gray-500">Full Hash: </span>
-                    <code className="font-mono text-xs text-gray-700 break-all">
+                    <span className="text-xs text-t-muted">Full Hash: </span>
+                    <code className="font-mono text-xs text-t-secondary break-all">
                       {entry.current_hash}
                     </code>
                   </div>

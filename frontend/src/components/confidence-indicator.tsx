@@ -32,17 +32,17 @@ function getLabel(confidence: number): string {
 }
 
 function getBgClass(confidence: number): string {
-  if (confidence >= 0.8) return "bg-green-50 border-green-200";
-  if (confidence >= 0.6) return "bg-amber-50 border-amber-200";
-  if (confidence >= 0.4) return "bg-orange-50 border-orange-200";
-  return "bg-red-50 border-red-200";
+  if (confidence >= 0.8) return "bg-green-500/20 border-green-500/30";
+  if (confidence >= 0.6) return "bg-amber-500/20 border-amber-500/30";
+  if (confidence >= 0.4) return "bg-orange-500/20 border-orange-500/30";
+  return "bg-red-500/20 border-red-500/30";
 }
 
 function getTextClass(confidence: number): string {
-  if (confidence >= 0.8) return "text-green-700";
-  if (confidence >= 0.6) return "text-amber-700";
-  if (confidence >= 0.4) return "text-orange-700";
-  return "text-red-700";
+  if (confidence >= 0.8) return "text-green-400";
+  if (confidence >= 0.6) return "text-amber-400";
+  if (confidence >= 0.4) return "text-orange-400";
+  return "text-red-400";
 }
 
 export function ConfidenceIndicator({
@@ -66,7 +66,7 @@ export function ConfidenceIndicator({
           cy={outer / 2}
           r={radius}
           fill="none"
-          stroke="#e5e7eb"
+          stroke="#243044"
           strokeWidth={stroke}
         />
         {/* Progress arc */}
@@ -89,7 +89,7 @@ export function ConfidenceIndicator({
           textAnchor="middle"
           dominantBaseline="central"
           className="rotate-90 origin-center"
-          fill={color}
+          fill="#F1F5F9"
           fontSize={fontSize}
           fontWeight="bold"
         >
@@ -98,7 +98,7 @@ export function ConfidenceIndicator({
       </svg>
       <span
         className="text-center font-medium"
-        style={{ fontSize: labelSize, color: "#6b7280" }}
+        style={{ fontSize: labelSize, color: "#94A3B8" }}
       >
         {label}
       </span>

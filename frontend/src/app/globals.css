@@ -2,6 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gray-50 text-gray-900;
+@layer base {
+  body {
+    @apply bg-surface-0 text-t-primary antialiased;
+  }
+
+  /* Dark scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-3 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-t-muted;
+  }
+}
+
+@layer components {
+  /* Glassmorphism card */
+  .glass-card {
+    @apply bg-surface-1/80 backdrop-blur-md border border-white/[0.06] rounded-xl;
+  }
+
+  /* Elevated glass card */
+  .glass-card-elevated {
+    @apply bg-surface-2/80 backdrop-blur-md border border-white/[0.08] rounded-xl;
+  }
+
+  /* Dark table */
+  .dark-table thead {
+    @apply bg-surface-2/60;
+  }
+  .dark-table th {
+    @apply text-t-muted text-[11px] font-medium uppercase tracking-wider px-6 py-3 text-left;
+  }
+  .dark-table td {
+    @apply px-6 py-3 text-t-secondary text-sm;
+  }
+  .dark-table tbody tr {
+    @apply border-b border-white/[0.04] transition-colors hover:bg-surface-2/40;
+  }
+
+  /* Dark skeleton loader */
+  .skeleton-dark {
+    @apply animate-pulse rounded bg-surface-2;
+  }
 }

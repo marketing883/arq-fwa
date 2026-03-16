@@ -30,9 +30,9 @@ interface PeerComparisonProps {
 // ---------------------------------------------------------------------------
 
 function percentileBadgeClass(percentile: number): string {
-  if (percentile > 90) return "bg-red-100 text-red-800 border border-red-300";
-  if (percentile >= 75) return "bg-amber-100 text-amber-800 border border-amber-300";
-  return "bg-green-100 text-green-800 border border-green-300";
+  if (percentile > 90) return "bg-red-500/20 text-red-400 border border-red-500/30";
+  if (percentile >= 75) return "bg-amber-500/20 text-amber-400 border border-amber-500/30";
+  return "bg-green-500/20 text-green-400 border border-green-500/30";
 }
 
 function formatValue(value: number): string {
@@ -47,12 +47,12 @@ function formatValue(value: number): string {
 
 function MetricCardSkeleton() {
   return (
-    <div className="animate-pulse rounded-lg border border-gray-200 bg-white p-5">
+    <div className="animate-pulse rounded-lg border border-white/[0.06] glass-card p-5">
       <div className="mb-4 flex items-center justify-between">
-        <div className="h-5 w-40 rounded bg-gray-200" />
-        <div className="h-5 w-20 rounded bg-gray-200" />
+        <div className="h-5 w-40 rounded bg-surface-3" />
+        <div className="h-5 w-20 rounded bg-surface-3" />
       </div>
-      <div className="h-48 w-full rounded bg-gray-100" />
+      <div className="h-48 w-full rounded bg-surface-2" />
     </div>
   );
 }
@@ -60,10 +60,10 @@ function MetricCardSkeleton() {
 function HeaderSkeleton() {
   return (
     <div className="animate-pulse space-y-2">
-      <div className="h-6 w-64 rounded bg-gray-200" />
+      <div className="h-6 w-64 rounded bg-surface-3" />
       <div className="flex gap-3">
-        <div className="h-4 w-32 rounded bg-gray-200" />
-        <div className="h-4 w-48 rounded bg-gray-200" />
+        <div className="h-4 w-32 rounded bg-surface-3" />
+        <div className="h-4 w-48 rounded bg-surface-3" />
       </div>
     </div>
   );
@@ -92,8 +92,16 @@ function MetricTooltip({
   if (!active || !payload || payload.length === 0) return null;
 
   return (
-    <div className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm shadow-lg">
-      <p className="mb-1 font-medium text-gray-900">{label}</p>
+    <div
+      className="rounded-lg px-3 py-2 text-sm"
+      style={{
+        backgroundColor: "#111827",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 8,
+        color: "#F1F5F9",
+      }}
+    >
+      <p className="mb-1 font-medium text-t-primary">{label}</p>
       {payload.map((entry, idx) => (
         <p key={idx} style={{ color: entry.color }} className="text-xs">
           {entry.name}: {formatValue(entry.value ?? 0)}
@@ -126,20 +134,20 @@ function MetricCard({ metric }: { metric: PeerMetric }) {
   return (
     <div
       className={cn(
-        "rounded-lg border bg-white p-5 shadow-sm transition-shadow hover:shadow-md",
-        metric.anomaly ? "border-red-300" : "border-gray-200"
+        "rounded-lg border glass-card p-5 transition-shadow",
+        metric.anomaly ? "border-red-500/30" : "border-white/[0.06]"
       )}
     >
       {/* Card header */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-gray-500" />
-          <h3 className="text-sm font-semibold text-gray-900">{metric.metric}</h3>
+          <TrendingUp className="h-4 w-4 text-t-muted" />
+          <h3 className="text-sm font-semibold text-t-primary">{metric.metric}</h3>
         </div>
 
         <div className="flex items-center gap-2">
           {metric.anomaly && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 border border-red-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-500/20 px-2.5 py-0.5 text-xs font-medium text-red-400 border border-red-500/30">
               <AlertTriangle className="h-3 w-3" />
               Above P90
             </span>
@@ -158,20 +166,20 @@ function MetricCard({ metric }: { metric: PeerMetric }) {
       {/* Value summary row */}
       <div className="mb-3 grid grid-cols-4 gap-2 text-center text-xs">
         <div>
-          <p className="text-gray-500">Provider</p>
-          <p className="font-semibold text-blue-600">{formatValue(metric.provider_value)}</p>
+          <p className="text-t-muted">Provider</p>
+          <p className="font-semibold text-arq-blue-400">{formatValue(metric.provider_value)}</p>
         </div>
         <div>
-          <p className="text-gray-500">Peer Avg</p>
-          <p className="font-semibold text-gray-600">{formatValue(metric.peer_average)}</p>
+          <p className="text-t-muted">Peer Avg</p>
+          <p className="font-semibold text-t-secondary">{formatValue(metric.peer_average)}</p>
         </div>
         <div>
-          <p className="text-gray-500">P75</p>
-          <p className="font-semibold text-amber-600">{formatValue(metric.peer_p75)}</p>
+          <p className="text-t-muted">P75</p>
+          <p className="font-semibold text-amber-400">{formatValue(metric.peer_p75)}</p>
         </div>
         <div>
-          <p className="text-gray-500">P90</p>
-          <p className="font-semibold text-red-600">{formatValue(metric.peer_p90)}</p>
+          <p className="text-t-muted">P90</p>
+          <p className="font-semibold text-red-400">{formatValue(metric.peer_p90)}</p>
         </div>
       </div>
 
@@ -183,9 +191,21 @@ function MetricCard({ metric }: { metric: PeerMetric }) {
             layout="vertical"
             margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
           >
-            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" domain={[0, maxValue]} tickFormatter={formatValue} fontSize={11} />
-            <YAxis type="category" dataKey="name" width={60} fontSize={11} />
+            <CartesianGrid stroke="#1A2235" strokeDasharray="3 3" horizontal={false} />
+            <XAxis
+              type="number"
+              domain={[0, maxValue]}
+              tickFormatter={formatValue}
+              tick={{ fill: "#94A3B8", fontSize: 11 }}
+              stroke="#243044"
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={60}
+              tick={{ fill: "#94A3B8", fontSize: 11 }}
+              stroke="#243044"
+            />
             <Tooltip content={<MetricTooltip />} />
 
             {/* Peer average – solid gray reference line */}
@@ -279,10 +299,10 @@ export function PeerComparisonPanel({ npi, workspaceId }: PeerComparisonProps) {
   // ── Error state ──
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-red-200 bg-red-50 px-6 py-12 text-center">
-        <AlertTriangle className="mb-3 h-8 w-8 text-red-500" />
-        <h3 className="text-sm font-semibold text-red-800">Error Loading Peer Comparison</h3>
-        <p className="mt-1 text-xs text-red-600">{error}</p>
+      <div className="flex flex-col items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 px-6 py-12 text-center">
+        <AlertTriangle className="mb-3 h-8 w-8 text-red-400" />
+        <h3 className="text-sm font-semibold text-red-400">Error Loading Peer Comparison</h3>
+        <p className="mt-1 text-xs text-red-400/80">{error}</p>
       </div>
     );
   }
@@ -290,10 +310,10 @@ export function PeerComparisonPanel({ npi, workspaceId }: PeerComparisonProps) {
   // ── Empty state ──
   if (!data || data.metrics.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-gray-200 bg-gray-50 px-6 py-12 text-center">
-        <Users className="mb-3 h-8 w-8 text-gray-400" />
-        <h3 className="text-sm font-semibold text-gray-700">No Peer Comparison Data</h3>
-        <p className="mt-1 text-xs text-gray-500">
+      <div className="flex flex-col items-center justify-center rounded-lg border border-white/[0.06] bg-surface-2 px-6 py-12 text-center">
+        <Users className="mb-3 h-8 w-8 text-t-muted" />
+        <h3 className="text-sm font-semibold text-t-secondary">No Peer Comparison Data</h3>
+        <p className="mt-1 text-xs text-t-muted">
           No peer comparison metrics are available for this provider.
         </p>
       </div>
@@ -307,8 +327,8 @@ export function PeerComparisonPanel({ npi, workspaceId }: PeerComparisonProps) {
       {/* Header */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">{data.provider.name}</h2>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+          <h2 className="text-lg font-bold text-t-primary">{data.provider.name}</h2>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-t-muted">
             <span>NPI: {data.provider.npi}</span>
             <span className="hidden sm:inline">|</span>
             <span>{data.provider.specialty}</span>
@@ -316,13 +336,13 @@ export function PeerComparisonPanel({ npi, workspaceId }: PeerComparisonProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800 border border-blue-200">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-arq-blue-500/20 px-3 py-1 text-xs font-medium text-arq-blue-400 border border-arq-blue-500/30">
             <Users className="h-3.5 w-3.5" />
             {data.peer_group}
           </span>
 
           {anomalyCount > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-800 border border-red-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-500/20 px-3 py-1 text-xs font-medium text-red-400 border border-red-500/30">
               <AlertTriangle className="h-3.5 w-3.5" />
               {anomalyCount} anomal{anomalyCount === 1 ? "y" : "ies"}
             </span>

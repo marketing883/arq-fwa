@@ -36,7 +36,7 @@ type TAOSubTab = "trust" | "hitl" | "lineage" | "receipts";
 type ODASubTab = "signals" | "adaptations" | "feedback";
 
 function SkeletonBar({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded bg-gray-200", className)} />;
+  return <div className={cn("skeleton-dark", className)} />;
 }
 
 function MetricCard({
@@ -53,15 +53,15 @@ function MetricCard({
   color: string;
 }) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+    <div className="glass-card rounded-lg border border-white/[0.06] p-4">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <p className="text-xs font-medium text-t-muted uppercase tracking-wider">
             {label}
           </p>
-          <p className="text-2xl font-bold mt-1 text-gray-900">{value}</p>
+          <p className="text-2xl font-bold mt-1 text-t-primary">{value}</p>
           {subtitle && (
-            <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
+            <p className="text-xs text-t-muted mt-0.5">{subtitle}</p>
           )}
         </div>
         <div
@@ -79,16 +79,16 @@ function MetricCard({
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-800",
-    approved: "bg-green-100 text-green-800",
-    denied: "bg-red-100 text-red-800",
-    auto_approved: "bg-blue-100 text-blue-800",
+    pending: "bg-amber-500/20 text-amber-400",
+    approved: "bg-green-500/20 text-green-400",
+    denied: "bg-red-500/20 text-red-400",
+    auto_approved: "bg-arq-blue-500/15 text-arq-blue-400",
   };
   return (
     <span
       className={cn(
         "inline-block px-2 py-0.5 rounded text-xs font-medium",
-        colors[status] || "bg-gray-100 text-gray-800"
+        colors[status] || "bg-surface-2 text-t-primary"
       )}
     >
       {status.replace(/_/g, " ")}
@@ -108,13 +108,13 @@ function TrustScoreBar({ score }: { score: number }) {
       : "bg-red-500";
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div className="flex-1 h-2 bg-surface-3 rounded-full overflow-hidden">
         <div
           className={cn("h-full rounded-full transition-all", color)}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs font-mono text-gray-600 w-10 text-right">
+      <span className="text-xs font-mono text-t-secondary w-10 text-right">
         {pct}%
       </span>
     </div>
@@ -272,10 +272,10 @@ export default function GovernancePage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-t-primary">
             AI Governance
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-t-muted mt-1">
             Patent methodology monitoring — ArqFlow, ArqGuard, ArqSight
           </p>
         </div>
@@ -285,8 +285,8 @@ export default function GovernancePage() {
           className={cn(
             "inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
             refreshing
-              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              ? "bg-surface-3 text-t-muted cursor-not-allowed"
+              : "bg-surface-2 text-t-secondary hover:bg-surface-3"
           )}
         >
           <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
@@ -295,7 +295,7 @@ export default function GovernancePage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-white/[0.06]">
         <nav className="-mb-px flex gap-6">
           {tabs.map((tab) => (
             <button
@@ -304,8 +304,8 @@ export default function GovernancePage() {
               className={cn(
                 "pb-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
                 activeTab === tab.id
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-arq-blue-400 text-arq-blue-400"
+                  : "border-transparent text-t-muted hover:text-t-secondary hover:border-t-muted"
               )}
             >
               {tab.icon}
@@ -369,7 +369,7 @@ function OverviewTab({
     return (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {Array.from({ length: 9 }).map((_, i) => (
-          <div key={i} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <div key={i} className="glass-card rounded-lg border border-white/[0.06] p-4">
             <SkeletonBar className="h-4 w-24 mb-3" />
             <SkeletonBar className="h-8 w-20" />
           </div>
@@ -382,8 +382,8 @@ function OverviewTab({
     <div className="space-y-6">
       {/* ArqFlow (TAO) */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-          <Shield size={18} className="text-blue-600" />
+        <h2 className="text-lg font-semibold text-t-primary mb-3 flex items-center gap-2">
+          <Shield size={18} className="text-arq-blue-400" />
           ArqFlow — Trust-Aware Orchestration
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -420,8 +420,8 @@ function OverviewTab({
 
       {/* ArqGuard (CAPC) */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-          <FileCheck size={18} className="text-emerald-600" />
+        <h2 className="text-lg font-semibold text-t-primary mb-3 flex items-center gap-2">
+          <FileCheck size={18} className="text-emerald-400" />
           ArqGuard — Compliance-Aware Prompt Compiler
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -453,8 +453,8 @@ function OverviewTab({
 
       {/* ArqSight (ODA-RAG) */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-          <Activity size={18} className="text-orange-600" />
+        <h2 className="text-lg font-semibold text-t-primary mb-3 flex items-center gap-2">
+          <Activity size={18} className="text-orange-400" />
           ArqSight — Observability-Driven Adaptive RAG
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -532,8 +532,8 @@ function TAOTab({
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
               subTab === st.id
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                ? "bg-arq-blue-500 text-white"
+                : "bg-surface-2 text-t-secondary hover:bg-surface-3"
             )}
           >
             {st.label}
@@ -548,7 +548,7 @@ function TAOTab({
 
       {/* Trust Profiles */}
       {subTab === "trust" && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
           {!trustProfiles ? (
             <div className="p-6 space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -556,14 +556,14 @@ function TAOTab({
               ))}
             </div>
           ) : trustProfiles.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">
+            <div className="p-12 text-center text-t-muted">
               No agent trust profiles yet. Profiles are created when agents execute actions.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="dark-table w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600">
+                  <tr>
                     <th className="px-4 py-3 font-medium">Agent ID</th>
                     <th className="px-4 py-3 font-medium w-48">Trust Score</th>
                     <th className="px-4 py-3 font-medium">Escalation</th>
@@ -572,10 +572,10 @@ function TAOTab({
                     <th className="px-4 py-3 font-medium text-right">History</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-white/[0.06]">
                   {trustProfiles.map((p) => (
-                    <tr key={p.agent_id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-900">
+                    <tr key={p.agent_id} className="hover:bg-surface-2/40 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-t-primary">
                         {p.agent_id}
                       </td>
                       <td className="px-4 py-3">
@@ -586,20 +586,20 @@ function TAOTab({
                           className={cn(
                             "inline-block px-2 py-0.5 rounded text-xs font-medium",
                             p.escalation_level === 0
-                              ? "bg-green-100 text-green-800"
+                              ? "bg-green-500/20 text-green-400"
                               : p.escalation_level <= 2
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-red-100 text-red-800"
+                              ? "bg-amber-500/20 text-amber-400"
+                              : "bg-red-500/20 text-red-400"
                           )}
                         >
                           Level {p.escalation_level}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">{p.decay_model}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
+                      <td className="px-4 py-3 text-t-secondary text-xs">{p.decay_model}</td>
+                      <td className="px-4 py-3 text-t-muted text-xs">
                         {formatDateTime(p.last_successful_action)}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-500">
+                      <td className="px-4 py-3 text-right text-t-muted">
                         {p.history_count} events
                       </td>
                     </tr>
@@ -613,7 +613,7 @@ function TAOTab({
 
       {/* HITL Requests */}
       {subTab === "hitl" && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
           {!hitlRequests ? (
             <div className="p-6 space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -621,14 +621,14 @@ function TAOTab({
               ))}
             </div>
           ) : hitlRequests.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">
+            <div className="p-12 text-center text-t-muted">
               No HITL approval requests. High-risk actions will appear here for human review.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="dark-table w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600">
+                  <tr>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Agent</th>
                     <th className="px-4 py-3 font-medium">Action</th>
@@ -638,35 +638,35 @@ function TAOTab({
                     <th className="px-4 py-3 font-medium">Reviewer</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-white/[0.06]">
                   {hitlRequests.map((r) => (
-                    <tr key={r.request_id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={r.request_id} className="hover:bg-surface-2/40 transition-colors">
                       <td className="px-4 py-3">
                         <StatusBadge status={r.status} />
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{r.agent_id}</td>
-                      <td className="px-4 py-3 text-gray-700">{r.requested_action}</td>
+                      <td className="px-4 py-3 text-t-secondary">{r.requested_action}</td>
                       <td className="px-4 py-3">
                         <span
                           className={cn(
                             "inline-block px-2 py-0.5 rounded text-xs font-semibold",
                             r.risk_tier === "critical"
-                              ? "bg-red-100 text-red-800"
+                              ? "bg-red-500/20 text-red-400"
                               : r.risk_tier === "high"
-                              ? "bg-orange-100 text-orange-800"
-                              : "bg-yellow-100 text-yellow-800"
+                              ? "bg-orange-500/15 text-orange-400"
+                              : "bg-amber-500/20 text-amber-400"
                           )}
                         >
                           {r.risk_tier} ({(r.action_risk_score * 100).toFixed(0)})
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">
+                      <td className="px-4 py-3 text-t-secondary text-xs">
                         {(r.agent_trust_score * 100).toFixed(0)}%
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
+                      <td className="px-4 py-3 text-t-muted text-xs">
                         {formatDateTime(r.created_at)}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
+                      <td className="px-4 py-3 text-t-muted text-xs">
                         {r.reviewer || "\u2014"}
                       </td>
                     </tr>
@@ -680,7 +680,7 @@ function TAOTab({
 
       {/* Lineage */}
       {subTab === "lineage" && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
           {!lineageNodes ? (
             <div className="p-6 space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -688,14 +688,14 @@ function TAOTab({
               ))}
             </div>
           ) : lineageNodes.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">
+            <div className="p-12 text-center text-t-muted">
               No lineage nodes recorded yet. Agent actions create lineage traces.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="dark-table w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600">
+                  <tr>
                     <th className="px-4 py-3 font-medium">Node ID</th>
                     <th className="px-4 py-3 font-medium">Type</th>
                     <th className="px-4 py-3 font-medium">Agent</th>
@@ -705,26 +705,26 @@ function TAOTab({
                     <th className="px-4 py-3 font-medium">Timestamp</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-white/[0.06]">
                   {lineageNodes.map((n) => (
-                    <tr key={n.node_id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    <tr key={n.node_id} className="hover:bg-surface-2/40 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-t-muted">
                         {n.node_id.slice(0, 8)}...
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-arq-blue-500/15 text-arq-blue-400">
                           {n.node_type}
                         </span>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{n.agent_id || "\u2014"}</td>
-                      <td className="px-4 py-3 text-gray-700 text-xs">{n.action}</td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">
+                      <td className="px-4 py-3 text-t-secondary text-xs">{n.action}</td>
+                      <td className="px-4 py-3 text-t-secondary text-xs">
                         {n.trust_score != null ? `${(n.trust_score * 100).toFixed(0)}%` : "\u2014"}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-500 text-xs">
+                      <td className="px-4 py-3 text-right text-t-muted text-xs">
                         {n.duration_ms != null ? `${n.duration_ms}ms` : "\u2014"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
+                      <td className="px-4 py-3 text-t-muted text-xs">
                         {formatDateTime(n.created_at)}
                       </td>
                     </tr>
@@ -738,7 +738,7 @@ function TAOTab({
 
       {/* Audit Receipts */}
       {subTab === "receipts" && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
           {!auditReceipts ? (
             <div className="p-6 space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -746,14 +746,14 @@ function TAOTab({
               ))}
             </div>
           ) : auditReceipts.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">
+            <div className="p-12 text-center text-t-muted">
               No audit receipts. Hash-chained receipts are created for each agent action.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="dark-table w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600">
+                  <tr>
                     <th className="px-4 py-3 font-medium">Receipt ID</th>
                     <th className="px-4 py-3 font-medium">Action</th>
                     <th className="px-4 py-3 font-medium">Agent</th>
@@ -762,13 +762,13 @@ function TAOTab({
                     <th className="px-4 py-3 font-medium">Timestamp</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-white/[0.06]">
                   {auditReceipts.map((r) => (
-                    <tr key={r.receipt_id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    <tr key={r.receipt_id} className="hover:bg-surface-2/40 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-t-muted">
                         {r.receipt_id.slice(0, 8)}...
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{r.action_type}</td>
+                      <td className="px-4 py-3 text-t-secondary">{r.action_type}</td>
                       <td className="px-4 py-3 font-mono text-xs">{r.agent_id}</td>
                       <td className="px-4 py-3">
                         {r.action_risk_score != null ? (
@@ -776,10 +776,10 @@ function TAOTab({
                             className={cn(
                               "inline-block px-2 py-0.5 rounded text-xs font-semibold",
                               r.action_risk_score > 0.7
-                                ? "bg-red-100 text-red-800"
+                                ? "bg-red-500/20 text-red-400"
                                 : r.action_risk_score > 0.4
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-green-100 text-green-800"
+                                ? "bg-amber-500/20 text-amber-400"
+                                : "bg-green-500/20 text-green-400"
                             )}
                           >
                             {(r.action_risk_score * 100).toFixed(0)}
@@ -788,14 +788,14 @@ function TAOTab({
                           "\u2014"
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs max-w-xs truncate">
+                      <td className="px-4 py-3 text-t-secondary text-xs max-w-xs truncate">
                         {r.output_summary
                           ? typeof r.output_summary === "string"
                             ? r.output_summary
                             : JSON.stringify(r.output_summary)
                           : "\u2014"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
+                      <td className="px-4 py-3 text-t-muted text-xs">
                         {formatDateTime(r.timestamp)}
                       </td>
                     </tr>
@@ -853,10 +853,10 @@ function CAPCTab({
       )}
 
       {/* Evidence Packets Table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-900">Evidence Packets</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
+      <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
+        <div className="p-4 border-b border-white/[0.06]">
+          <h3 className="text-sm font-semibold text-t-primary">Evidence Packets</h3>
+          <p className="text-xs text-t-muted mt-0.5">
             Signed evidence bundles for each compiled prompt
           </p>
         </div>
@@ -867,14 +867,14 @@ function CAPCTab({
             ))}
           </div>
         ) : evidencePackets.length === 0 ? (
-          <div className="p-12 text-center text-gray-400">
+          <div className="p-12 text-center text-t-muted">
             No evidence packets. Packets are created when prompts are compiled through ArqGuard.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="dark-table w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 text-left text-gray-600">
+                <tr>
                   <th className="px-4 py-3 font-medium">Packet ID</th>
                   <th className="px-4 py-3 font-medium">Request</th>
                   <th className="px-4 py-3 font-medium text-right">Decisions</th>
@@ -883,16 +883,16 @@ function CAPCTab({
                   <th className="px-4 py-3 font-medium">Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-white/[0.06]">
                 {evidencePackets.map((p) => (
-                  <tr key={p.packet_id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                  <tr key={p.packet_id} className="hover:bg-surface-2/40 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-t-muted">
                       {p.packet_id.slice(0, 8)}...
                     </td>
-                    <td className="px-4 py-3 text-gray-700 text-xs max-w-xs truncate">
+                    <td className="px-4 py-3 text-t-secondary text-xs max-w-xs truncate">
                       {p.original_request}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600">
+                    <td className="px-4 py-3 text-right text-t-secondary">
                       {p.policy_decisions_count}
                     </td>
                     <td className="px-4 py-3">
@@ -901,26 +901,26 @@ function CAPCTab({
                           className={cn(
                             "inline-block px-2 py-0.5 rounded text-xs font-medium",
                             p.exception_action === "ABORT"
-                              ? "bg-red-100 text-red-800"
+                              ? "bg-red-500/20 text-red-400"
                               : p.exception_action === "REVIEW"
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-orange-100 text-orange-800"
+                              ? "bg-amber-500/20 text-amber-400"
+                              : "bg-orange-500/15 text-orange-400"
                           )}
                         >
                           {p.exception_action}
                         </span>
                       ) : (
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-500/20 text-green-400">
                           PASS
                         </span>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <code className="font-mono text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                      <code className="font-mono text-xs text-t-muted bg-surface-2 px-1.5 py-0.5 rounded">
                         {p.packet_hash}
                       </code>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
+                    <td className="px-4 py-3 text-t-muted text-xs">
                       {formatDateTime(p.created_at)}
                     </td>
                   </tr>
@@ -1008,7 +1008,7 @@ function ODARAGTab({
               "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
               subTab === st.id
                 ? "bg-orange-600 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                : "bg-surface-2 text-t-secondary hover:bg-surface-3"
             )}
           >
             {st.label}
@@ -1025,13 +1025,13 @@ function ODARAGTab({
               {signalSummary.map((s) => (
                 <div
                   key={s.signal_type}
-                  className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm"
+                  className="glass-card rounded-lg border border-white/[0.06] p-4"
                 >
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <p className="text-xs font-medium text-t-muted uppercase tracking-wider">
                     {s.signal_type.replace(/_/g, " ")}
                   </p>
-                  <p className="text-xl font-bold mt-1 text-gray-900">{s.count}</p>
-                  <div className="flex gap-4 mt-2 text-xs text-gray-400">
+                  <p className="text-xl font-bold mt-1 text-t-primary">{s.count}</p>
+                  <div className="flex gap-4 mt-2 text-xs text-t-muted">
                     <span>avg: {s.avg_value?.toFixed(3) ?? "N/A"}</span>
                     <span>min: {s.min_value?.toFixed(3) ?? "N/A"}</span>
                     <span>max: {s.max_value?.toFixed(3) ?? "N/A"}</span>
@@ -1042,9 +1042,9 @@ function ODARAGTab({
           )}
 
           {/* Recent Signals Table */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-900">Recent Signals</h3>
+          <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
+            <div className="p-4 border-b border-white/[0.06]">
+              <h3 className="text-sm font-semibold text-t-primary">Recent Signals</h3>
             </div>
             {!signals ? (
               <div className="p-6 space-y-3">
@@ -1053,31 +1053,31 @@ function ODARAGTab({
                 ))}
               </div>
             ) : signals.length === 0 ? (
-              <div className="p-12 text-center text-gray-400">
+              <div className="p-12 text-center text-t-muted">
                 No signals recorded. Signals are collected during RAG queries.
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="dark-table w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 text-left text-gray-600">
+                    <tr>
                       <th className="px-4 py-3 font-medium">Type</th>
                       <th className="px-4 py-3 font-medium">Metric</th>
                       <th className="px-4 py-3 font-medium text-right">Value</th>
                       <th className="px-4 py-3 font-medium">Timestamp</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-white/[0.06]">
                     {signals.slice(0, 50).map((s) => (
-                      <tr key={s.signal_id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={s.signal_id} className="hover:bg-surface-2/40 transition-colors">
                         <td className="px-4 py-3">
-                          <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                          <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-orange-500/15 text-orange-400">
                             {s.signal_type.replace(/_/g, " ")}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-700 text-xs">{s.metric_name}</td>
+                        <td className="px-4 py-3 text-t-secondary text-xs">{s.metric_name}</td>
                         <td className="px-4 py-3 text-right font-mono text-xs">{s.metric_value.toFixed(4)}</td>
-                        <td className="px-4 py-3 text-gray-500 text-xs">{formatDateTime(s.created_at)}</td>
+                        <td className="px-4 py-3 text-t-muted text-xs">{formatDateTime(s.created_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1090,10 +1090,10 @@ function ODARAGTab({
 
       {/* Adaptations */}
       {subTab === "adaptations" && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900">Adaptation Events</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
+        <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
+          <div className="p-4 border-b border-white/[0.06]">
+            <h3 className="text-sm font-semibold text-t-primary">Adaptation Events</h3>
+            <p className="text-xs text-t-muted mt-0.5">
               Automatic parameter adjustments in response to drift
             </p>
           </div>
@@ -1104,35 +1104,35 @@ function ODARAGTab({
               ))}
             </div>
           ) : adaptations.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">
+            <div className="p-12 text-center text-t-muted">
               No adaptations yet. The system adapts RAG parameters when drift is detected.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="dark-table w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600">
+                  <tr>
                     <th className="px-4 py-3 font-medium">Action</th>
                     <th className="px-4 py-3 font-medium">Drift Score</th>
                     <th className="px-4 py-3 font-medium">Reason</th>
                     <th className="px-4 py-3 font-medium">Timestamp</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-white/[0.06]">
                   {adaptations.map((a) => (
-                    <tr key={a.event_id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={a.event_id} className="hover:bg-surface-2/40 transition-colors">
                       <td className="px-4 py-3">
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-400">
                           {a.action_type.replace(/_/g, " ")}
                         </span>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">
                         {a.drift_score != null ? a.drift_score.toFixed(3) : "\u2014"}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs max-w-md truncate">
+                      <td className="px-4 py-3 text-t-secondary text-xs max-w-md truncate">
                         {a.reason || "\u2014"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{formatDateTime(a.created_at)}</td>
+                      <td className="px-4 py-3 text-t-muted text-xs">{formatDateTime(a.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1144,10 +1144,10 @@ function ODARAGTab({
 
       {/* Feedback */}
       {subTab === "feedback" && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900">RAG Feedback</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
+        <div className="glass-card rounded-lg border border-white/[0.06] overflow-hidden">
+          <div className="p-4 border-b border-white/[0.06]">
+            <h3 className="text-sm font-semibold text-t-primary">RAG Feedback</h3>
+            <p className="text-xs text-t-muted mt-0.5">
               Quality and relevance feedback for the closed-loop learner
             </p>
           </div>
@@ -1158,14 +1158,14 @@ function ODARAGTab({
               ))}
             </div>
           ) : feedback.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">
+            <div className="p-12 text-center text-t-muted">
               No feedback recorded. Feedback is collected from RAG query responses.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="dark-table w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600">
+                  <tr>
                     <th className="px-4 py-3 font-medium">Query</th>
                     <th className="px-4 py-3 font-medium">Quality</th>
                     <th className="px-4 py-3 font-medium">Relevance</th>
@@ -1173,10 +1173,10 @@ function ODARAGTab({
                     <th className="px-4 py-3 font-medium">Timestamp</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-white/[0.06]">
                   {feedback.map((f) => (
-                    <tr key={f.feedback_id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 text-gray-700 text-xs max-w-xs truncate">
+                    <tr key={f.feedback_id} className="hover:bg-surface-2/40 transition-colors">
+                      <td className="px-4 py-3 text-t-secondary text-xs max-w-xs truncate">
                         {f.query}
                       </td>
                       <td className="px-4 py-3">
@@ -1189,8 +1189,8 @@ function ODARAGTab({
                           "\u2014"
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{f.feedback_source}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{formatDateTime(f.created_at)}</td>
+                      <td className="px-4 py-3 text-t-muted text-xs">{f.feedback_source}</td>
+                      <td className="px-4 py-3 text-t-muted text-xs">{formatDateTime(f.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1207,10 +1207,10 @@ function QualityBadge({ value }: { value: number }) {
   const pct = (value * 100).toFixed(0);
   const color =
     value >= 0.8
-      ? "bg-green-100 text-green-800"
+      ? "bg-green-500/20 text-green-400"
       : value >= 0.5
-      ? "bg-yellow-100 text-yellow-800"
-      : "bg-red-100 text-red-800";
+      ? "bg-amber-500/20 text-amber-400"
+      : "bg-red-500/20 text-red-400";
   return (
     <span className={cn("inline-block px-2 py-0.5 rounded text-xs font-semibold", color)}>
       {pct}%

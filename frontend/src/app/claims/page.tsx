@@ -49,7 +49,7 @@ const SEVERITY_COLORS = [
 function SkeletonBar({ className }: { className?: string }) {
   return (
     <div
-      className={cn("animate-pulse rounded bg-gray-200", className)}
+      className={cn("skeleton-dark", className)}
     />
   );
 }
@@ -69,8 +69,8 @@ function FilterButton({
       className={cn(
         "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
         active
-          ? "bg-blue-600 text-white"
-          : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+          ? "bg-arq-blue-500 text-white"
+          : "bg-surface-2 text-t-secondary border border-white/[0.06] hover:bg-surface-3"
       )}
     >
       {children}
@@ -189,15 +189,15 @@ export default function ClaimsPage() {
     <div className="space-y-6">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Claims Explorer</h1>
+        <h1 className="text-2xl font-bold text-t-primary">Claims Explorer</h1>
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+      <div className="glass-card p-4">
         <div className="flex flex-wrap items-center gap-6">
           {/* Type Filter */}
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wider">
+            <p className="text-xs font-medium text-t-muted mb-1.5 uppercase tracking-wider">
               Type
             </p>
             <div className="flex gap-1">
@@ -215,7 +215,7 @@ export default function ClaimsPage() {
 
           {/* Risk Level Filter */}
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wider">
+            <p className="text-xs font-medium text-t-muted mb-1.5 uppercase tracking-wider">
               Risk Level
             </p>
             <div className="flex gap-1">
@@ -233,7 +233,7 @@ export default function ClaimsPage() {
 
           {/* Page Size */}
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wider">
+            <p className="text-xs font-medium text-t-muted mb-1.5 uppercase tracking-wider">
               Page Size
             </p>
             <div className="flex gap-1">
@@ -252,7 +252,7 @@ export default function ClaimsPage() {
       </div>
 
       {/* Claims Table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+      <div className="glass-card">
         {loading ? (
           <div className="p-6 space-y-3">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -262,15 +262,15 @@ export default function ClaimsPage() {
         ) : data && sortedItems.length > 0 ? (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="dark-table w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-gray-600 border-b border-gray-200">
+                  <tr>
                     <th className="px-4 py-3 font-medium">Claim ID</th>
                     <th className="px-4 py-3 font-medium">Type</th>
                     <th className="px-4 py-3 font-medium">Member ID</th>
                     <th className="px-4 py-3 font-medium">Service Date</th>
                     <th
-                      className="px-4 py-3 font-medium text-right cursor-pointer select-none hover:text-blue-600"
+                      className="px-4 py-3 font-medium text-right cursor-pointer select-none hover:text-arq-blue-400"
                       onClick={toggleSort}
                     >
                       Amount Billed
@@ -285,32 +285,32 @@ export default function ClaimsPage() {
                     <th className="px-4 py-3 font-medium">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody>
                   {sortedItems.map((claim) => (
                     <tr
                       key={claim.id}
                       className={cn(
-                        "hover:bg-gray-50 transition-colors cursor-pointer",
-                        selectedClaimId === claim.claim_id && "bg-blue-50"
+                        "cursor-pointer",
+                        selectedClaimId === claim.claim_id && "bg-arq-blue-500/10"
                       )}
                       onClick={() => setSelectedClaimId(claim.claim_id)}
                     >
-                      <td className="px-4 py-3 font-mono text-xs text-blue-600">
+                      <td className="px-4 py-3 font-mono text-xs text-arq-blue-400">
                         {claim.claim_id}
                       </td>
-                      <td className="px-4 py-3 text-gray-700 capitalize">
+                      <td className="px-4 py-3 capitalize">
                         {claim.claim_type}
                       </td>
-                      <td className="px-4 py-3 text-gray-700">
+                      <td className="px-4 py-3">
                         {claim.member_id}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">
+                      <td className="px-4 py-3">
                         {formatDate(claim.service_date || claim.fill_date)}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium">
+                      <td className="px-4 py-3 text-right text-t-primary font-medium">
                         {formatCurrency(claim.amount_billed)}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-700">
+                      <td className="px-4 py-3 text-right">
                         {claim.risk_score != null
                           ? claim.risk_score.toFixed(1)
                           : "\u2014"}
@@ -326,11 +326,11 @@ export default function ClaimsPage() {
                             {claim.risk_level}
                           </span>
                         ) : (
-                          <span className="text-gray-400">\u2014</span>
+                          <span className="text-t-muted">{"\u2014"}</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 capitalize">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-surface-3 text-t-secondary capitalize">
                           {claim.status}
                         </span>
                       </td>
@@ -341,8 +341,8 @@ export default function ClaimsPage() {
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-              <p className="text-sm text-gray-600">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-white/[0.06]">
+              <p className="text-sm text-t-secondary">
                 {formatNumber(data.total)} total claims
               </p>
               <div className="flex items-center gap-3">
@@ -352,13 +352,13 @@ export default function ClaimsPage() {
                   className={cn(
                     "px-3 py-1.5 rounded text-sm font-medium transition-colors",
                     page <= 1
-                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                      : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      ? "bg-surface-2 text-t-muted cursor-not-allowed"
+                      : "bg-surface-2 border border-white/[0.06] text-t-secondary hover:bg-surface-3"
                   )}
                 >
                   Previous
                 </button>
-                <span className="text-sm text-gray-700">
+                <span className="text-sm text-t-secondary">
                   Page {page} of {totalPages}
                 </span>
                 <button
@@ -369,8 +369,8 @@ export default function ClaimsPage() {
                   className={cn(
                     "px-3 py-1.5 rounded text-sm font-medium transition-colors",
                     page >= totalPages
-                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                      : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      ? "bg-surface-2 text-t-muted cursor-not-allowed"
+                      : "bg-surface-2 border border-white/[0.06] text-t-secondary hover:bg-surface-3"
                   )}
                 >
                   Next
@@ -379,7 +379,7 @@ export default function ClaimsPage() {
             </div>
           </>
         ) : (
-          <div className="p-12 text-center text-gray-400">
+          <div className="p-12 text-center text-t-muted">
             No claims found matching the current filters.
           </div>
         )}
@@ -390,22 +390,22 @@ export default function ClaimsPage() {
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/20 z-40"
+            className="fixed inset-0 bg-black/40 z-40"
             onClick={() => setSelectedClaimId(null)}
           />
 
           {/* Panel */}
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-50 overflow-y-auto border-l border-gray-200">
+          <div className="fixed top-0 right-0 h-full w-96 bg-surface-1 shadow-xl z-50 overflow-y-auto border-l border-white/[0.06]">
             {/* Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
-              <h2 className="text-lg font-semibold text-gray-900">
+            <div className="sticky top-0 bg-surface-1 border-b border-white/[0.06] px-6 py-4 flex items-center justify-between z-10">
+              <h2 className="text-lg font-semibold text-t-primary">
                 Claim Detail
               </h2>
               <button
                 onClick={() => setSelectedClaimId(null)}
-                className="p-1 rounded hover:bg-gray-100 transition-colors"
+                className="p-1 rounded hover:bg-surface-2/40 transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-t-muted" />
               </button>
             </div>
 
@@ -422,112 +422,112 @@ export default function ClaimsPage() {
               <div className="p-6 space-y-6">
                 {/* Claim Summary */}
                 <section>
-                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  <h3 className="text-sm font-semibold text-t-muted uppercase tracking-wider mb-3">
                     Summary
                   </h3>
                   <dl className="space-y-2">
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Claim ID</dt>
-                      <dd className="text-sm font-mono text-gray-900">
+                      <dt className="text-sm text-t-muted">Claim ID</dt>
+                      <dd className="text-sm font-mono text-t-primary">
                         {claimDetail.claim_id}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Type</dt>
-                      <dd className="text-sm text-gray-900 capitalize">
+                      <dt className="text-sm text-t-muted">Type</dt>
+                      <dd className="text-sm text-t-primary capitalize">
                         {claimDetail.claim_type}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Member ID</dt>
-                      <dd className="text-sm text-gray-900">
+                      <dt className="text-sm text-t-muted">Member ID</dt>
+                      <dd className="text-sm text-t-primary">
                         {claimDetail.member_member_id ?? claimDetail.member_id}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Status</dt>
-                      <dd className="text-sm text-gray-900 capitalize">
+                      <dt className="text-sm text-t-muted">Status</dt>
+                      <dd className="text-sm text-t-primary capitalize">
                         {claimDetail.status}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Service Date</dt>
-                      <dd className="text-sm text-gray-900">
+                      <dt className="text-sm text-t-muted">Service Date</dt>
+                      <dd className="text-sm text-t-primary">
                         {formatDate(
                           claimDetail.service_date || claimDetail.fill_date
                         )}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Amount Billed</dt>
-                      <dd className="text-sm font-medium text-gray-900">
+                      <dt className="text-sm text-t-muted">Amount Billed</dt>
+                      <dd className="text-sm font-medium text-t-primary">
                         {formatCurrency(claimDetail.amount_billed)}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Amount Allowed</dt>
-                      <dd className="text-sm text-gray-900">
+                      <dt className="text-sm text-t-muted">Amount Allowed</dt>
+                      <dd className="text-sm text-t-primary">
                         {formatCurrency(claimDetail.amount_allowed)}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Amount Paid</dt>
-                      <dd className="text-sm text-gray-900">
+                      <dt className="text-sm text-t-muted">Amount Paid</dt>
+                      <dd className="text-sm text-t-primary">
                         {formatCurrency(claimDetail.amount_paid)}
                       </dd>
                     </div>
                     {claimDetail.provider_name && (
                       <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Provider</dt>
-                        <dd className="text-sm text-gray-900">
+                        <dt className="text-sm text-t-muted">Provider</dt>
+                        <dd className="text-sm text-t-primary">
                           {claimDetail.provider_name}
                         </dd>
                       </div>
                     )}
                     {claimDetail.provider_npi && (
                       <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Provider NPI</dt>
-                        <dd className="text-sm font-mono text-gray-900">
+                        <dt className="text-sm text-t-muted">Provider NPI</dt>
+                        <dd className="text-sm font-mono text-t-primary">
                           {claimDetail.provider_npi}
                         </dd>
                       </div>
                     )}
                     {claimDetail.cpt_code && (
                       <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">CPT Code</dt>
-                        <dd className="text-sm font-mono text-gray-900">
+                        <dt className="text-sm text-t-muted">CPT Code</dt>
+                        <dd className="text-sm font-mono text-t-primary">
                           {claimDetail.cpt_code}
                         </dd>
                       </div>
                     )}
                     {claimDetail.diagnosis_code_primary && (
                       <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Dx Code</dt>
-                        <dd className="text-sm font-mono text-gray-900">
+                        <dt className="text-sm text-t-muted">Dx Code</dt>
+                        <dd className="text-sm font-mono text-t-primary">
                           {claimDetail.diagnosis_code_primary}
                         </dd>
                       </div>
                     )}
                     {claimDetail.drug_name && (
                       <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Drug</dt>
-                        <dd className="text-sm text-gray-900">
+                        <dt className="text-sm text-t-muted">Drug</dt>
+                        <dd className="text-sm text-t-primary">
                           {claimDetail.drug_name}
                         </dd>
                       </div>
                     )}
                     {claimDetail.ndc_code && (
                       <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">NDC Code</dt>
-                        <dd className="text-sm font-mono text-gray-900">
+                        <dt className="text-sm text-t-muted">NDC Code</dt>
+                        <dd className="text-sm font-mono text-t-primary">
                           {claimDetail.ndc_code}
                         </dd>
                       </div>
                     )}
                     {claimDetail.days_supply != null && (
                       <div className="flex justify-between">
-                        <dt className="text-sm text-gray-500">Days Supply</dt>
-                        <dd className="text-sm text-gray-900">
+                        <dt className="text-sm text-t-muted">Days Supply</dt>
+                        <dd className="text-sm text-t-primary">
                           {claimDetail.days_supply}
                         </dd>
                       </div>
@@ -538,20 +538,20 @@ export default function ClaimsPage() {
                 {/* Risk Score */}
                 {claimDetail.risk_score && (
                   <section>
-                    <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                    <h3 className="text-sm font-semibold text-t-muted uppercase tracking-wider mb-3">
                       Risk Score
                     </h3>
-                    <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div className="bg-surface-2 rounded-lg p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-t-secondary">
                           Total Score
                         </span>
-                        <span className="text-xl font-bold text-gray-900">
+                        <span className="text-xl font-bold text-t-primary">
                           {claimDetail.risk_score.total_score.toFixed(1)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-t-secondary">
                           Risk Level
                         </span>
                         <span
@@ -564,18 +564,18 @@ export default function ClaimsPage() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-t-secondary">
                           Rules Triggered
                         </span>
-                        <span className="text-sm font-medium text-gray-900">
+                        <span className="text-sm font-medium text-t-primary">
                           {claimDetail.risk_score.rules_triggered}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-t-secondary">
                           Confidence
                         </span>
-                        <span className="text-sm font-medium text-gray-900">
+                        <span className="text-sm font-medium text-t-primary">
                           {(
                             claimDetail.risk_score.confidence_factor * 100
                           ).toFixed(0)}
@@ -590,7 +590,7 @@ export default function ClaimsPage() {
                 {claimDetail.rule_results &&
                   claimDetail.rule_results.length > 0 && (
                     <section>
-                      <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                      <h3 className="text-sm font-semibold text-t-muted uppercase tracking-wider mb-3">
                         Rule Results
                       </h3>
                       <div className="space-y-3">
@@ -609,18 +609,18 @@ export default function ClaimsPage() {
                             return (
                               <div
                                 key={rule.rule_id}
-                                className="bg-gray-50 rounded-lg p-3"
+                                className="bg-surface-2 rounded-lg p-3"
                               >
                                 <div className="flex items-center justify-between mb-1.5">
-                                  <span className="text-sm font-medium text-gray-900 font-mono">
+                                  <span className="text-sm font-medium text-t-primary font-mono">
                                     {rule.rule_id}
                                   </span>
-                                  <span className="text-xs text-gray-500">
+                                  <span className="text-xs text-t-muted">
                                     Severity: {severity}/3
                                   </span>
                                 </div>
                                 {/* Severity bar */}
-                                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div className="w-full h-2 bg-surface-3 rounded-full overflow-hidden">
                                   <div
                                     className={cn(
                                       "h-full rounded-full transition-all",
@@ -630,7 +630,7 @@ export default function ClaimsPage() {
                                   />
                                 </div>
                                 {rule.details && (
-                                  <p className="text-xs text-gray-600 mt-1.5">
+                                  <p className="text-xs text-t-secondary mt-1.5">
                                     {rule.details}
                                   </p>
                                 )}
@@ -644,7 +644,7 @@ export default function ClaimsPage() {
                           })}
                         {claimDetail.rule_results.filter((r) => r.triggered)
                           .length === 0 && (
-                          <p className="text-sm text-gray-400">
+                          <p className="text-sm text-t-muted">
                             No rules triggered
                           </p>
                         )}
@@ -653,7 +653,7 @@ export default function ClaimsPage() {
                   )}
               </div>
             ) : (
-              <div className="p-6 text-center text-gray-400">
+              <div className="p-6 text-center text-t-muted">
                 Failed to load claim details.
               </div>
             )}

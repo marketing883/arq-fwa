@@ -28,36 +28,28 @@ import remarkGfm from "remark-gfm";
 /* -------------------------------------------------------------------------- */
 
 const markdownClasses = [
-  "prose prose-sm max-w-none text-gray-800",
-  // headings
-  "prose-headings:font-semibold prose-headings:text-gray-900",
+  "prose prose-sm prose-invert max-w-none text-t-secondary",
+  "prose-headings:font-semibold prose-headings:text-t-primary",
   "prose-h1:text-base prose-h2:text-[0.9rem] prose-h3:text-sm",
   "prose-headings:mt-3 prose-headings:mb-1 first:prose-headings:mt-0",
-  // paragraphs & lists
   "prose-p:my-1.5 prose-p:leading-relaxed",
   "prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5",
-  // inline code
   "prose-code:before:content-none prose-code:after:content-none",
-  "prose-code:bg-white/70 prose-code:rounded prose-code:px-1 prose-code:py-0.5",
-  "prose-code:text-purple-700 prose-code:text-xs prose-code:font-medium",
-  // code blocks
-  "prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-pre:rounded-lg prose-pre:my-2",
+  "prose-code:bg-surface-3 prose-code:rounded prose-code:px-1 prose-code:py-0.5",
+  "prose-code:text-arq-lime-400 prose-code:text-xs prose-code:font-medium",
+  "prose-pre:bg-surface-0 prose-pre:text-t-secondary prose-pre:rounded-lg prose-pre:my-2",
   "prose-pre:text-xs prose-pre:leading-relaxed",
-  // tables — proper borders, bg, and overflow
   "prose-table:my-2 prose-table:text-xs prose-table:w-full prose-table:border-collapse",
-  "prose-table:border prose-table:border-gray-200 prose-table:rounded-lg",
-  "prose-thead:bg-gray-50/80",
-  "prose-th:text-left prose-th:px-2.5 prose-th:py-1.5 prose-th:font-semibold prose-th:text-gray-700",
-  "prose-th:border prose-th:border-gray-200 prose-th:text-[11px] prose-th:uppercase prose-th:tracking-wide",
-  "prose-td:px-2.5 prose-td:py-1.5 prose-td:border prose-td:border-gray-200 prose-td:text-gray-700",
+  "prose-table:border prose-table:border-white/[0.06] prose-table:rounded-lg",
+  "prose-thead:bg-surface-2/60",
+  "prose-th:text-left prose-th:px-2.5 prose-th:py-1.5 prose-th:font-semibold prose-th:text-t-muted",
+  "prose-th:border prose-th:border-white/[0.06] prose-th:text-[11px] prose-th:uppercase prose-th:tracking-wide",
+  "prose-td:px-2.5 prose-td:py-1.5 prose-td:border prose-td:border-white/[0.06] prose-td:text-t-secondary",
   "prose-td:whitespace-nowrap",
-  // blockquotes
-  "prose-blockquote:border-purple-300 prose-blockquote:text-gray-600 prose-blockquote:my-2 prose-blockquote:not-italic",
-  // hr & links
-  "prose-hr:my-3 prose-hr:border-gray-300",
-  "prose-a:text-blue-600 prose-a:underline",
-  // strong / em
-  "prose-strong:text-gray-900 prose-strong:font-semibold",
+  "prose-blockquote:border-arq-blue-400 prose-blockquote:text-t-muted prose-blockquote:my-2 prose-blockquote:not-italic",
+  "prose-hr:my-3 prose-hr:border-white/[0.06]",
+  "prose-a:text-arq-blue-400 prose-a:underline",
+  "prose-strong:text-t-primary prose-strong:font-semibold",
 ].join(" ");
 
 /* -------------------------------------------------------------------------- */
@@ -82,23 +74,23 @@ function InvestigationCard({ data }: { data: InvestigateResponse }) {
   return (
     <div className="mt-3 space-y-3">
       {/* Summary */}
-      <div className="rounded-lg bg-white border border-gray-200 p-3">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+      <div className="rounded-lg bg-surface-2/80 border border-white/[0.06] p-3">
+        <h4 className="text-xs font-semibold text-t-muted uppercase tracking-wider mb-1">
           Summary
         </h4>
-        <p className="text-sm text-gray-800 leading-relaxed">{data.summary}</p>
+        <p className="text-sm text-t-primary leading-relaxed">{data.summary}</p>
       </div>
 
       {/* Findings */}
       {data.findings.length > 0 && (
-        <div className="rounded-lg bg-white border border-gray-200 p-3">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+        <div className="rounded-lg bg-surface-2/80 border border-white/[0.06] p-3">
+          <h4 className="text-xs font-semibold text-t-muted uppercase tracking-wider mb-2">
             Findings
           </h4>
           <ul className="space-y-1.5">
             {data.findings.map((f, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+              <li key={i} className="flex items-start gap-2 text-sm text-t-secondary">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
                 <span>{f}</span>
               </li>
             ))}
@@ -108,11 +100,11 @@ function InvestigationCard({ data }: { data: InvestigateResponse }) {
 
       {/* Risk Assessment */}
       {data.risk_assessment && (
-        <div className="rounded-lg bg-white border border-gray-200 p-3">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+        <div className="rounded-lg bg-surface-2/80 border border-white/[0.06] p-3">
+          <h4 className="text-xs font-semibold text-t-muted uppercase tracking-wider mb-1">
             Risk Assessment
           </h4>
-          <p className="text-sm text-gray-800 leading-relaxed">
+          <p className="text-sm text-t-primary leading-relaxed">
             {data.risk_assessment}
           </p>
         </div>
@@ -120,14 +112,14 @@ function InvestigationCard({ data }: { data: InvestigateResponse }) {
 
       {/* Recommended Actions */}
       {data.recommended_actions.length > 0 && (
-        <div className="rounded-lg bg-white border border-gray-200 p-3">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+        <div className="rounded-lg bg-surface-2/80 border border-white/[0.06] p-3">
+          <h4 className="text-xs font-semibold text-t-muted uppercase tracking-wider mb-2">
             Recommended Actions
           </h4>
           <ul className="space-y-1.5">
             {data.recommended_actions.map((a, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                <CheckCircle className="h-3.5 w-3.5 text-green-500 mt-0.5 shrink-0" />
+              <li key={i} className="flex items-start gap-2 text-sm text-t-secondary">
+                <CheckCircle className="h-3.5 w-3.5 text-green-400 mt-0.5 shrink-0" />
                 <span>{a}</span>
               </li>
             ))}
@@ -136,17 +128,17 @@ function InvestigationCard({ data }: { data: InvestigateResponse }) {
       )}
 
       {/* Confidence & Model */}
-      <div className="flex items-center gap-4 text-xs text-gray-400">
+      <div className="flex items-center gap-4 text-xs text-t-muted">
         <span>
           Confidence:{" "}
           <span
             className={cn(
               "font-medium",
               data.confidence >= 0.7
-                ? "text-green-600"
+                ? "text-green-400"
                 : data.confidence >= 0.4
-                  ? "text-amber-600"
-                  : "text-red-500",
+                  ? "text-amber-400"
+                  : "text-red-400",
             )}
           >
             {(data.confidence * 100).toFixed(0)}%
@@ -385,35 +377,35 @@ export default function AgentsPage() {
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 shrink-0 shadow-sm">
+      <div className="bg-surface-1 border-b border-white/[0.06] px-6 py-3 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-purple-100">
-              <Bot className="w-5 h-5 text-purple-600" />
+            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-arq-blue-500/20">
+              <Bot className="w-5 h-5 text-arq-blue-400" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">
+              <h1 className="text-lg font-bold text-t-primary">
                 AI Investigation Assistant
               </h1>
               <div className="flex items-center gap-2 mt-0.5">
                 {agentStatus?.mode === "slm" ? (
                   <>
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-                    <p className="text-xs text-gray-500">
-                      Powered by <span className="font-medium text-gray-700">{agentStatus.model}</span> (local SLM)
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
+                    <p className="text-xs text-t-muted">
+                      Powered by <span className="font-medium text-t-secondary">{agentStatus.model}</span> (local SLM)
                     </p>
                   </>
                 ) : agentStatus?.status === "loading" ? (
                   <>
                     <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                    <p className="text-xs text-amber-600">
+                    <p className="text-xs text-amber-400">
                       Model downloading&hellip; using data engine in the meantime
                     </p>
                   </>
                 ) : (
                   <>
-                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />
-                    <p className="text-xs text-gray-500">
+                    <span className="inline-block w-2 h-2 rounded-full bg-arq-blue-500" />
+                    <p className="text-xs text-t-muted">
                       Data-driven analysis engine
                     </p>
                   </>
@@ -430,8 +422,8 @@ export default function AgentsPage() {
                 className={cn(
                   "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
                   selectedCase
-                    ? "border-purple-300 bg-purple-50 text-purple-700"
-                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
+                    ? "border-arq-blue-500/20 bg-arq-blue-900/30 text-arq-blue-400"
+                    : "border-white/[0.06] bg-surface-2 text-t-secondary hover:bg-surface-2/40",
                 )}
               >
                 <Search className="h-3.5 w-3.5" />
@@ -448,32 +440,32 @@ export default function AgentsPage() {
                     setSelectedCase(null);
                     setShowCaseDropdown(false);
                   }}
-                  className="ml-1 inline-flex items-center justify-center w-6 h-6 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                  className="ml-1 inline-flex items-center justify-center w-6 h-6 rounded text-t-muted hover:text-t-secondary hover:bg-surface-2"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
 
               {showCaseDropdown && (
-                <div className="absolute right-0 top-full mt-1 z-50 w-80 rounded-lg border border-gray-200 bg-white shadow-lg">
-                  <div className="p-2 border-b border-gray-100">
+                <div className="absolute right-0 top-full mt-1 z-50 w-80 rounded-lg border border-white/[0.08] bg-surface-2 shadow-lg">
+                  <div className="p-2 border-b border-white/[0.06]">
                     <input
                       type="text"
                       value={caseSearch}
                       onChange={(e) => setCaseSearch(e.target.value)}
                       placeholder="Search cases..."
-                      className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-400 focus:outline-none"
+                      className="w-full rounded-md border border-surface-3 bg-surface-3 px-3 py-1.5 text-sm text-t-primary focus:border-arq-blue-400 focus:outline-none"
                       autoFocus
                     />
                   </div>
                   <div className="max-h-60 overflow-y-auto">
                     {loadingCases ? (
-                      <div className="flex items-center justify-center py-4 text-sm text-gray-400">
+                      <div className="flex items-center justify-center py-4 text-sm text-t-muted">
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                         Loading cases...
                       </div>
                     ) : filteredCases.length === 0 ? (
-                      <div className="py-4 text-center text-sm text-gray-400">
+                      <div className="py-4 text-center text-sm text-t-muted">
                         No cases found
                       </div>
                     ) : (
@@ -486,15 +478,15 @@ export default function AgentsPage() {
                             setCaseSearch("");
                           }}
                           className={cn(
-                            "w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between",
-                            selectedCase === c.case_id && "bg-purple-50",
+                            "w-full px-3 py-2 text-left text-sm hover:bg-surface-2/40 flex items-center justify-between",
+                            selectedCase === c.case_id && "bg-arq-blue-900/30",
                           )}
                         >
                           <div>
-                            <span className="font-mono text-xs text-gray-900">
+                            <span className="font-mono text-xs text-t-primary">
                               {c.case_id}
                             </span>
-                            <span className="ml-2 text-xs text-gray-400">
+                            <span className="ml-2 text-xs text-t-muted">
                               {c.claim_id}
                             </span>
                           </div>
@@ -502,12 +494,12 @@ export default function AgentsPage() {
                             className={cn(
                               "rounded px-1.5 py-0.5 text-[10px] font-medium",
                               c.risk_level === "critical"
-                                ? "bg-red-100 text-red-700"
+                                ? "bg-red-500/20 text-red-400"
                                 : c.risk_level === "high"
-                                  ? "bg-orange-100 text-orange-700"
+                                  ? "bg-orange-500/20 text-orange-400"
                                   : c.risk_level === "medium"
-                                    ? "bg-yellow-100 text-yellow-700"
-                                    : "bg-green-100 text-green-700",
+                                    ? "bg-amber-500/20 text-amber-400"
+                                    : "bg-green-500/20 text-green-400",
                             )}
                           >
                             {c.risk_level}
@@ -528,8 +520,8 @@ export default function AgentsPage() {
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-white transition-colors",
                   isTyping
-                    ? "bg-purple-400 cursor-not-allowed"
-                    : "bg-purple-600 hover:bg-purple-700",
+                    ? "bg-arq-blue-500/60 cursor-not-allowed"
+                    : "bg-arq-blue-500 hover:bg-arq-blue-600",
                 )}
               >
                 {isTyping ? (
@@ -545,30 +537,30 @@ export default function AgentsPage() {
 
         {/* Selected case banner */}
         {selectedCaseData && (
-          <div className="mt-2 flex items-center gap-3 rounded-md bg-purple-50 border border-purple-100 px-3 py-1.5 text-xs">
-            <span className="text-purple-700 font-medium">
+          <div className="mt-2 flex items-center gap-3 rounded-md bg-arq-blue-900/30 border border-arq-blue-500/20 px-3 py-1.5 text-xs">
+            <span className="text-arq-blue-400 font-medium">
               Scoped to: {selectedCaseData.case_id}
             </span>
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-500">
+            <span className="text-t-muted">|</span>
+            <span className="text-t-muted">
               Claim: {selectedCaseData.claim_id}
             </span>
-            <span className="text-gray-400">|</span>
+            <span className="text-t-muted">|</span>
             <span
               className={cn(
                 "font-medium",
                 selectedCaseData.risk_level === "critical"
-                  ? "text-red-600"
+                  ? "text-red-400"
                   : selectedCaseData.risk_level === "high"
-                    ? "text-orange-600"
-                    : "text-yellow-600",
+                    ? "text-orange-400"
+                    : "text-amber-400",
               )}
             >
               Risk: {selectedCaseData.risk_score.toFixed(0)} (
               {selectedCaseData.risk_level})
             </span>
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-500">
+            <span className="text-t-muted">|</span>
+            <span className="text-t-muted">
               Status: {selectedCaseData.status}
             </span>
           </div>
@@ -576,9 +568,9 @@ export default function AgentsPage() {
       </div>
 
       {/* Message Area */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-gray-50">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-surface-0">
         {restoringSession && (
-          <div className="flex items-center justify-center py-4 text-sm text-gray-400">
+          <div className="flex items-center justify-center py-4 text-sm text-t-muted">
             <Loader2 className="h-4 w-4 animate-spin mr-2" />
             Restoring previous conversation...
           </div>
@@ -594,8 +586,8 @@ export default function AgentsPage() {
             <div
               className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
                 msg.role === "assistant"
-                  ? "bg-slate-200 text-slate-600"
-                  : "bg-blue-500 text-white"
+                  ? "bg-surface-2 text-t-muted"
+                  : "bg-arq-blue-500 text-white"
               }`}
             >
               {msg.role === "assistant" ? (
@@ -615,8 +607,8 @@ export default function AgentsPage() {
                 className={cn(
                   "rounded-2xl px-4 py-3 text-sm leading-relaxed",
                   msg.role === "assistant"
-                    ? "bg-slate-100 text-gray-800 rounded-tl-sm"
-                    : "bg-blue-500 text-white rounded-tr-sm",
+                    ? "bg-surface-2 text-t-primary rounded-tl-sm"
+                    : "bg-arq-blue-500 text-white rounded-tr-sm",
                 )}
               >
                 {msg.role === "assistant" ? (
@@ -625,7 +617,7 @@ export default function AgentsPage() {
                       remarkPlugins={[remarkGfm]}
                       components={{
                         table: ({ children, ...props }) => (
-                          <div className="overflow-x-auto my-2 rounded-lg border border-gray-200">
+                          <div className="overflow-x-auto my-2 rounded-lg border border-white/[0.06]">
                             <table {...props} className="min-w-full text-xs border-collapse">
                               {children}
                             </table>
@@ -652,11 +644,11 @@ export default function AgentsPage() {
                   msg.role === "user" ? "justify-end" : "justify-start"
                 }`}
               >
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-t-muted">
                   {formatTime(msg.timestamp)}
                 </p>
                 {msg.model && (
-                  <span className="text-[10px] text-gray-300 font-mono">
+                  <span className="text-[10px] text-t-muted font-mono">
                     {msg.model}
                   </span>
                 )}
@@ -665,9 +657,9 @@ export default function AgentsPage() {
                     className={cn(
                       "text-[10px] font-medium",
                       msg.confidence === "high"
-                        ? "text-green-500"
+                        ? "text-green-400"
                         : msg.confidence === "medium"
-                          ? "text-amber-500"
+                          ? "text-amber-400"
                           : "text-red-400",
                     )}
                   >
@@ -675,7 +667,7 @@ export default function AgentsPage() {
                   </span>
                 )}
                 {msg.sources && msg.sources.length > 0 && (
-                  <span className="text-[10px] text-purple-400">
+                  <span className="text-[10px] text-arq-blue-400">
                     {msg.sources.length} source
                     {msg.sources.length !== 1 ? "s" : ""}
                   </span>
@@ -688,14 +680,14 @@ export default function AgentsPage() {
         {/* Typing indicator */}
         {isTyping && (
           <div className="flex items-start gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-full shrink-0 bg-slate-200 text-slate-600">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full shrink-0 bg-surface-2 text-t-muted">
               <Bot className="w-4 h-4" />
             </div>
-            <div className="bg-slate-100 rounded-2xl rounded-tl-sm px-4 py-3">
+            <div className="bg-surface-2 rounded-2xl rounded-tl-sm px-4 py-3">
               <div className="flex gap-1">
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                <span className="w-2 h-2 bg-t-muted rounded-full animate-bounce [animation-delay:0ms]" />
+                <span className="w-2 h-2 bg-t-muted rounded-full animate-bounce [animation-delay:150ms]" />
+                <span className="w-2 h-2 bg-t-muted rounded-full animate-bounce [animation-delay:300ms]" />
               </div>
             </div>
           </div>
@@ -705,7 +697,7 @@ export default function AgentsPage() {
       </div>
 
       {/* Input Area */}
-      <div className="bg-white border-t border-gray-200 px-6 py-4 shrink-0 shadow-[0_-2px_8px_rgba(0,0,0,0.04)]">
+      <div className="bg-surface-1 border-t border-white/[0.06] px-6 py-4 shrink-0">
         <div className="flex items-center gap-3">
           <input
             ref={inputRef}
@@ -718,7 +710,7 @@ export default function AgentsPage() {
                 ? `Ask about ${selectedCase}...`
                 : "Ask about a case or fraud pattern..."
             }
-            className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+            className="flex-1 rounded-lg border border-surface-3 bg-surface-2 px-4 py-2.5 text-sm text-t-primary placeholder-t-muted focus:border-arq-blue-400 focus:ring-1 focus:ring-arq-blue-400/30 outline-none transition-colors"
             disabled={isTyping}
           />
           <button
@@ -726,8 +718,8 @@ export default function AgentsPage() {
             disabled={!input.trim() || isTyping}
             className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
               !input.trim() || isTyping
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700"
+                ? "bg-surface-2 text-t-muted cursor-not-allowed"
+                : "bg-arq-blue-500 text-white hover:bg-arq-blue-600"
             }`}
           >
             <Send className="w-4 h-4" />

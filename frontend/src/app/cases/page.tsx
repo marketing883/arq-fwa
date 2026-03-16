@@ -55,14 +55,14 @@ export default function InvestigationQueuePage() {
   return (
     <div>
       {/* Page Title */}
-      <h1 className="text-2xl font-bold mb-6">Investigation Queue</h1>
+      <h1 className="text-2xl font-bold text-t-primary mb-6">Investigation Queue</h1>
 
       {/* Filter Bar */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mb-6">
+      <div className="glass-card p-4 mb-6">
         <div className="flex flex-wrap items-center gap-6">
           {/* Status filter */}
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">Status:</span>
+            <span className="text-sm font-medium text-t-muted">Status:</span>
             <div className="flex gap-1">
               {STATUS_OPTIONS.map((s) => (
                 <button
@@ -71,8 +71,8 @@ export default function InvestigationQueuePage() {
                   className={cn(
                     "px-3 py-1.5 text-sm rounded-md transition-colors",
                     statusFilter === s
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      ? "bg-arq-blue-500 text-white"
+                      : "bg-surface-2 text-t-secondary hover:bg-surface-3"
                   )}
                 >
                   {STATUS_LABELS[s] || s}
@@ -83,7 +83,7 @@ export default function InvestigationQueuePage() {
 
           {/* Priority filter */}
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">Priority:</span>
+            <span className="text-sm font-medium text-t-muted">Priority:</span>
             <div className="flex gap-1">
               {PRIORITY_OPTIONS.map((p) => (
                 <button
@@ -92,8 +92,8 @@ export default function InvestigationQueuePage() {
                   className={cn(
                     "px-3 py-1.5 text-sm rounded-md transition-colors",
                     priorityFilter === p
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      ? "bg-arq-blue-500 text-white"
+                      : "bg-surface-2 text-t-secondary hover:bg-surface-3"
                   )}
                 >
                   {p}
@@ -106,39 +106,39 @@ export default function InvestigationQueuePage() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-red-700">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 mb-6 text-red-400">
           {error}
         </div>
       )}
 
       {/* Loading */}
       {loading && (
-        <div className="text-center py-12 text-gray-500">Loading cases...</div>
+        <div className="text-center py-12 text-t-muted">Loading cases...</div>
       )}
 
       {/* Cases Table */}
       {!loading && data && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="glass-card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="dark-table w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Case ID</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Claim ID</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Type</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-600">Risk Score</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Risk Level</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Priority</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Assigned To</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">SLA Deadline</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Created</th>
+                <tr>
+                  <th className="text-left px-4 py-3">Case ID</th>
+                  <th className="text-left px-4 py-3">Claim ID</th>
+                  <th className="text-left px-4 py-3">Type</th>
+                  <th className="text-right px-4 py-3">Risk Score</th>
+                  <th className="text-left px-4 py-3">Risk Level</th>
+                  <th className="text-left px-4 py-3">Priority</th>
+                  <th className="text-left px-4 py-3">Status</th>
+                  <th className="text-left px-4 py-3">Assigned To</th>
+                  <th className="text-left px-4 py-3">SLA Deadline</th>
+                  <th className="text-left px-4 py-3">Created</th>
                 </tr>
               </thead>
               <tbody>
                 {data.items.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={10} className="px-4 py-8 text-center text-t-muted">
                       No cases found.
                     </td>
                   </tr>
@@ -148,18 +148,18 @@ export default function InvestigationQueuePage() {
                     return (
                       <tr
                         key={c.id}
-                        className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                        className="border-b border-white/[0.06] hover:bg-surface-2/40 transition-colors"
                       >
                         <td className="px-4 py-3">
                           <Link
                             href={`/cases/${c.case_id}`}
-                            className="text-blue-600 hover:underline font-medium"
+                            className="text-arq-blue-400 hover:underline font-medium"
                           >
                             {c.case_id}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 text-gray-700">{c.claim_id}</td>
-                        <td className="px-4 py-3 text-gray-700 capitalize">{c.claim_type}</td>
+                        <td className="px-4 py-3 text-t-secondary">{c.claim_id}</td>
+                        <td className="px-4 py-3 text-t-secondary capitalize">{c.claim_type}</td>
                         <td className="px-4 py-3 text-right font-mono font-semibold">
                           {c.risk_score.toFixed(1)}
                         </td>
@@ -193,19 +193,19 @@ export default function InvestigationQueuePage() {
                             {c.status.replace("_", " ")}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {c.assigned_to || <span className="text-gray-400">Unassigned</span>}
+                        <td className="px-4 py-3 text-t-secondary">
+                          {c.assigned_to || <span className="text-t-muted">Unassigned</span>}
                         </td>
                         <td
                           className={cn(
                             "px-4 py-3",
-                            pastSla ? "text-red-600 font-semibold" : "text-gray-700"
+                            pastSla ? "text-red-400 font-semibold" : "text-t-secondary"
                           )}
                         >
                           {c.sla_deadline ? formatDateTime(c.sla_deadline) : "—"}
                           {pastSla && <span className="ml-1 text-xs">(overdue)</span>}
                         </td>
-                        <td className="px-4 py-3 text-gray-500">
+                        <td className="px-4 py-3 text-t-muted">
                           {formatDate(c.created_at)}
                         </td>
                       </tr>
@@ -218,20 +218,20 @@ export default function InvestigationQueuePage() {
 
           {/* Pagination */}
           {data.pages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-white/[0.06] bg-surface-2/40">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
                 className={cn(
                   "px-4 py-2 text-sm rounded-md",
                   page <= 1
-                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    ? "bg-surface-2 text-t-muted cursor-not-allowed"
+                    : "bg-surface-2 border border-white/[0.06] text-t-secondary hover:bg-surface-3"
                 )}
               >
                 Previous
               </button>
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-t-secondary">
                 Page {data.page} of {data.pages}
               </span>
               <button
@@ -240,8 +240,8 @@ export default function InvestigationQueuePage() {
                 className={cn(
                   "px-4 py-2 text-sm rounded-md",
                   page >= data.pages
-                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    ? "bg-surface-2 text-t-muted cursor-not-allowed"
+                    : "bg-surface-2 border border-white/[0.06] text-t-secondary hover:bg-surface-3"
                 )}
               >
                 Next

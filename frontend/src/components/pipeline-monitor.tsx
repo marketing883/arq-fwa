@@ -269,7 +269,7 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
         <div>
           <label
             htmlFor="claim-limit"
-            className="block text-xs font-medium text-gray-500 mb-1"
+            className="block text-xs font-medium text-t-muted mb-1"
           >
             Claim limit
           </label>
@@ -280,9 +280,9 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value) || 1)}
             disabled={running}
-            className="w-32 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm
-                       shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1
-                       focus:ring-blue-500 disabled:opacity-50"
+            className="w-32 rounded-md border bg-surface-2 border-surface-3 text-t-primary px-3 py-2 text-sm
+                       focus:border-arq-blue-500 focus:outline-none focus:ring-1
+                       focus:ring-arq-blue-500 disabled:opacity-50"
           />
         </div>
 
@@ -290,11 +290,11 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
           onClick={runPipeline}
           disabled={running}
           className={cn(
-            "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium",
-            "shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
+            "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm",
+            "transition-colors focus:outline-none focus:ring-2 focus:ring-arq-blue-500 focus:ring-offset-2",
             running
-              ? "cursor-not-allowed bg-gray-300 text-gray-500"
-              : "bg-blue-600 text-white hover:bg-blue-700",
+              ? "cursor-not-allowed bg-surface-3 text-t-muted"
+              : "bg-arq-lime-400 text-surface-0 hover:bg-arq-lime-500 font-semibold",
           )}
         >
           {running ? (
@@ -308,7 +308,7 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
 
       {/* ---- Error ---- */}
       {error && (
-        <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           <p className="font-medium">Pipeline Error</p>
           <p className="mt-1">{error}</p>
         </div>
@@ -316,9 +316,9 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
 
       {/* ---- Phase Stepper ---- */}
       {(running || summary || phases.some((p) => p.status !== "pending")) && (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="text-sm font-semibold text-gray-800">
+        <div className="rounded-lg border border-white/[0.06] glass-card">
+          <div className="px-5 py-4 border-b border-white/[0.06]">
+            <h3 className="text-sm font-semibold text-t-primary">
               Pipeline Progress
             </h3>
           </div>
@@ -335,9 +335,9 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
                     <div
                       className={cn(
                         "flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-500",
-                        phase.status === "complete" && "bg-green-100 text-green-600",
-                        phase.status === "active" && "bg-blue-100 text-blue-600",
-                        phase.status === "pending" && "bg-gray-100 text-gray-400",
+                        phase.status === "complete" && "bg-green-500/20 text-arq-lime-400",
+                        phase.status === "active" && "bg-arq-blue-500/20 text-arq-blue-400",
+                        phase.status === "pending" && "bg-surface-2 text-t-muted",
                       )}
                     >
                       {phase.status === "complete" ? (
@@ -353,8 +353,8 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
                         className={cn(
                           "w-0.5 flex-1 min-h-[24px] transition-colors duration-500",
                           phase.status === "complete"
-                            ? "bg-green-300"
-                            : "bg-gray-200",
+                            ? "bg-green-400/40"
+                            : "bg-surface-3",
                         )}
                       />
                     )}
@@ -366,35 +366,35 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
                       <p
                         className={cn(
                           "text-sm font-medium transition-colors duration-300",
-                          phase.status === "complete" && "text-green-700",
-                          phase.status === "active" && "text-blue-700",
-                          phase.status === "pending" && "text-gray-400",
+                          phase.status === "complete" && "text-green-400",
+                          phase.status === "active" && "text-arq-blue-400",
+                          phase.status === "pending" && "text-t-muted",
                         )}
                       >
                         {phase.label}
                       </p>
                       {phase.total > 0 && (
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-t-muted">
                           {fmt(phase.current)} / {fmt(phase.total)}
                         </span>
                       )}
                     </div>
 
                     {phase.detail && (
-                      <p className="mt-0.5 text-xs text-gray-500 truncate max-w-md">
+                      <p className="mt-0.5 text-xs text-t-muted truncate max-w-md">
                         {phase.detail}
                       </p>
                     )}
 
                     {/* Progress bar */}
                     {phase.status !== "pending" && (
-                      <div className="mt-2 h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                      <div className="mt-2 h-1.5 w-full rounded-full bg-surface-3 overflow-hidden">
                         <div
                           className={cn(
                             "h-full rounded-full transition-all duration-500 ease-out",
                             phase.status === "complete"
                               ? "bg-green-500"
-                              : "bg-blue-500",
+                              : "bg-arq-blue-500",
                           )}
                           style={{ width: `${Math.min(phase.progress, 100)}%` }}
                         />
@@ -410,14 +410,14 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
 
       {/* ---- Completion Summary ---- */}
       {summary && (
-        <div className="rounded-lg border border-green-200 bg-green-50 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-500">
-          <div className="px-5 py-4 border-b border-green-200">
+        <div className="rounded-lg border border-green-500/30 bg-green-500/10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="px-5 py-4 border-b border-green-500/20">
             <div className="flex items-center gap-2">
-              <CheckCircle size={18} className="text-green-600" />
-              <h3 className="text-sm font-semibold text-green-800">
+              <CheckCircle size={18} className="text-green-400" />
+              <h3 className="text-sm font-semibold text-green-400">
                 Pipeline Complete
               </h3>
-              <span className="ml-auto text-xs text-green-600">
+              <span className="ml-auto text-xs text-green-400">
                 {summary.elapsed_seconds.toFixed(1)}s elapsed
               </span>
             </div>
@@ -436,17 +436,17 @@ export function PipelineMonitor({ workspaceId, onComplete }: PipelineMonitorProp
               ["Critical Risk", fmt(summary.critical_risk)],
             ] as [string, string][]).map(([label, value]) => (
               <div key={label}>
-                <p className="text-[11px] font-medium text-green-600 uppercase tracking-wider">
+                <p className="text-[11px] font-medium text-green-400 uppercase tracking-wider">
                   {label}
                 </p>
                 <p
                   className={cn(
                     "mt-0.5 text-sm font-semibold",
                     label === "Critical Risk"
-                      ? "text-red-700"
+                      ? "text-red-400"
                       : label === "High Risk"
-                        ? "text-orange-700"
-                        : "text-green-900",
+                        ? "text-orange-400"
+                        : "text-t-primary",
                   )}
                 >
                   {value}
