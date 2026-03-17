@@ -243,10 +243,24 @@ async def upload_ingest(
     else:
         raise HTTPException(status_code=422, detail="claim_type must be 'medical' or 'pharmacy'")
 
+    # Auto-enqueue pipeline to process newly ingested claims
+    pipeline_job_id = None
+    if result.claims_created > 0:
+        try:
+            from app.services.job_queue import enqueue_pipeline_job
+
+            pipeline_job_id = await enqueue_pipeline_job(
+                workspace_id=ws.workspace_id,
+                limit=result.claims_created + 100,
+            )
+        except Exception:
+            pass  # Pipeline enqueue is best-effort
+
     return {
         "workspace_id": ws.workspace_id,
         "claim_type": claim_type,
         "rows_imported": result.claims_created,
         "rows_skipped": len(result.errors),
         "errors": [e.get("error", str(e)) if isinstance(e, dict) else str(e) for e in result.errors],
+        "pipeline_job_id": pipeline_job_id,
     }
