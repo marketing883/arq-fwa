@@ -51,6 +51,14 @@ TOOL_SENSITIVITY: dict[str, Sensitivity] = {
     "query_financial_summary": Sensitivity.RESTRICTED,
     "query_cases_financial": Sensitivity.RESTRICTED,
     "query_claims_analysis": Sensitivity.RESTRICTED,
+    "query_member_claims": Sensitivity.SENSITIVE,
+    "query_provider_claims": Sensitivity.SENSITIVE,
+    "query_case_notes": Sensitivity.INTERNAL,
+    "query_cases_by_date": Sensitivity.INTERNAL,
+    "query_sla_status": Sensitivity.INTERNAL,
+    "query_resolution_metrics": Sensitivity.RESTRICTED,
+    "lookup_code_reference": Sensitivity.PUBLIC,
+    "query_audit_trail": Sensitivity.CLASSIFIED,
 }
 
 

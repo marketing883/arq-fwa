@@ -31,9 +31,13 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from datetime import date, timedelta
+
 from app.models import (
     InvestigationCase, MedicalClaim, PharmacyClaim,
     RiskScore, RuleResult, Rule, Provider, Member,
+    CaseNote, CaseEvidence, AuditLog,
+    NDCReference, CPTReference, ICDReference,
 )
 from app.models.chat import ChatSession, ChatMessage
 from app.services.audit_service import AuditService
@@ -145,6 +149,43 @@ Available tools (respond with EXACTLY this JSON format to use one):
   → Returns: AGGREGATE totals — total_fraud_identified (amount_billed on high+critical claims, matches dashboard),
     flagged claims count, total billed/paid/prevented, recovered, breakdowns by risk level with fraud_amount per level.
   → Use for overall financial summaries. For per-case details, use query_cases_financial instead.
+
+{"tool": "query_member_claims", "args": {"member_id": "MEM-123", "claim_type": "medical", "limit": 20}}
+  → Returns: member demographics + chronological claim history with amounts and risk levels.
+  → Use for: "show me this member's history", "is this member a repeat offender", "all claims for member X".
+
+{"tool": "query_provider_claims", "args": {"npi": "1234567890", "risk_level": "high", "limit": 30}}
+  → Returns: provider info + individual claims with billing amounts and risk scores + aggregate summary.
+  → Use for: "show claims from provider X", "what is this provider billing for", "provider billing pattern".
+
+{"tool": "query_case_notes", "args": {"case_id": "CASE-XXXXXX"}}
+  → Returns: investigation notes (author, content, timestamp) and evidence items (type, title, content).
+  → Use for: "what notes are on this case", "show investigation history", "what evidence was collected".
+
+{"tool": "query_cases_by_date", "args": {"date_from": "2025-01-01", "date_to": "2025-01-31", "date_field": "created_at", "risk_level": "critical", "limit": 30}}
+  → Returns: cases within date range with financial data (amount_billed, fraud_identified, savings).
+  → date_field: "created_at" (default), "resolved_at", "closed_at".
+  → Use for: "cases from last week", "resolved in January", "new cases today", any time-based question.
+
+{"tool": "query_sla_status", "args": {"status": "overdue", "risk_level": "critical", "limit": 20}}
+  → Returns: cases with SLA deadline info, days remaining (negative = overdue), assigned investigator.
+  → status filter: "overdue" (past deadline), "at_risk" (within 2 days), "on_track", or omit for all.
+  → Use for: "overdue cases", "SLA compliance", "which cases are about to breach", "workload status".
+
+{"tool": "query_resolution_metrics", "args": {"risk_level": "critical", "date_from": "2025-01-01"}}
+  → Returns: resolution stats — cases resolved/closed, avg days to resolve, total recovery, recovery rate.
+  → Includes breakdown by risk level and resolution path.
+  → Use for: "how long to resolve cases", "recovery rate", "case outcomes", "resolution performance".
+
+{"tool": "lookup_code_reference", "args": {"code": "99213", "code_type": "cpt"}}
+  → Returns: reference data for the code — pricing benchmarks, descriptions, related codes.
+  → code_type: "cpt" (procedure pricing, RVU), "ndc" (drug info, AWP, generics), "icd" (diagnosis, validity).
+  → Use for: "what is CPT 99213", "is this claim priced correctly", "drug info for NDC X", "what diagnosis is ICD Z".
+
+{"tool": "query_audit_trail", "args": {"resource_id": "CASE-XXXXXX", "resource_type": "case", "limit": 20}}
+  → Returns: audit log entries for a resource — who did what and when.
+  → Filters: resource_id, resource_type (case/claim/rule/provider), event_type, actor.
+  → Use for: "who modified this case", "audit history for case X", "what changes were made", "compliance trail".
 """
 
 
@@ -313,6 +354,46 @@ class AgentService:
                     result = json.dumps(data)
                 else:
                     result = raw
+            elif tool_name == "query_member_claims":
+                raw = await self._tool_member_claims(args)
+                if self._max_tier < Sensitivity.SENSITIVE:
+                    data = json.loads(raw)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    result = json.dumps(data)
+                else:
+                    result = raw
+            elif tool_name == "query_provider_claims":
+                raw = await self._tool_provider_claims(args)
+                if self._max_tier < Sensitivity.SENSITIVE:
+                    data = json.loads(raw)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    result = json.dumps(data)
+                else:
+                    result = raw
+            elif tool_name == "query_case_notes":
+                result = await self._tool_case_notes(args)
+            elif tool_name == "query_cases_by_date":
+                raw = await self._tool_cases_by_date(args)
+                if self._max_tier < Sensitivity.RESTRICTED:
+                    data = json.loads(raw)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    result = json.dumps(data)
+                else:
+                    result = raw
+            elif tool_name == "query_sla_status":
+                result = await self._tool_sla_status(args)
+            elif tool_name == "query_resolution_metrics":
+                raw = await self._tool_resolution_metrics(args)
+                if self._max_tier < Sensitivity.RESTRICTED:
+                    data = json.loads(raw)
+                    data = redact_financial_for_tier(data, self._max_tier)
+                    result = json.dumps(data)
+                else:
+                    result = raw
+            elif tool_name == "lookup_code_reference":
+                result = await self._tool_code_reference(args)
+            elif tool_name == "query_audit_trail":
+                result = await self._tool_audit_trail(args)
             else:
                 result = f"Unknown tool: {tool_name}"
         except Exception as e:
@@ -844,6 +925,472 @@ class AgentService:
             "total_groups": len(results),
         })
 
+    # ------------------------------------------------------------------
+    # New tools (member, provider claims, notes, temporal, SLA, outcomes, reference, audit)
+    # ------------------------------------------------------------------
+
+    async def _tool_member_claims(self, args: dict) -> str:
+        """Member claim history with demographics."""
+        member_id_str = args.get("member_id", "")
+        claim_type = args.get("claim_type")
+        limit = int(args.get("limit", 20))
+
+        member = (await self.session.execute(
+            select(Member).where(Member.member_id == member_id_str)
+        )).scalar_one_or_none()
+        if not member:
+            return json.dumps({"error": f"Member {member_id_str} not found"})
+
+        demo = {
+            "member_id": member.member_id,
+            "name": f"{member.first_name[0]}. {member.last_name}",
+            "date_of_birth": str(member.date_of_birth),
+            "gender": member.gender,
+            "plan_type": member.plan_type,
+            "is_active": member.is_active,
+        }
+
+        claims = []
+        if claim_type in (None, "medical"):
+            q = (select(MedicalClaim, Provider.name.label("prov_name"), Provider.npi.label("prov_npi"))
+                 .join(Provider, MedicalClaim.provider_id == Provider.id)
+                 .where(MedicalClaim.member_id == member.id)
+                 .order_by(MedicalClaim.service_date.desc()).limit(limit))
+            for row in (await self.session.execute(q)):
+                c = row[0]
+                # Check for risk score
+                rs = (await self.session.execute(
+                    select(RiskScore.risk_level, RiskScore.total_score)
+                    .where(RiskScore.claim_id == c.claim_id)
+                )).first()
+                claims.append({
+                    "claim_id": c.claim_id, "type": "medical",
+                    "service_date": str(c.service_date), "cpt_code": c.cpt_code,
+                    "amount_billed": float(c.amount_billed),
+                    "amount_paid": float(c.amount_paid) if c.amount_paid else 0.0,
+                    "risk_level": rs[0] if rs else "unscored",
+                    "risk_score": float(rs[1]) if rs else 0.0,
+                    "provider": row.prov_name, "provider_npi": row.prov_npi,
+                })
+
+        if claim_type in (None, "pharmacy"):
+            q = (select(PharmacyClaim)
+                 .where(PharmacyClaim.member_id == member.id)
+                 .order_by(PharmacyClaim.fill_date.desc()).limit(limit))
+            for c in (await self.session.execute(q)).scalars():
+                rs = (await self.session.execute(
+                    select(RiskScore.risk_level, RiskScore.total_score)
+                    .where(RiskScore.claim_id == c.claim_id)
+                )).first()
+                claims.append({
+                    "claim_id": c.claim_id, "type": "pharmacy",
+                    "fill_date": str(c.fill_date), "drug_name": c.drug_name,
+                    "amount_billed": float(c.amount_billed),
+                    "amount_paid": float(c.amount_paid) if c.amount_paid else 0.0,
+                    "risk_level": rs[0] if rs else "unscored",
+                    "risk_score": float(rs[1]) if rs else 0.0,
+                })
+
+        return json.dumps({"member": demo, "claims": claims[:limit], "total_claims": len(claims)}, default=str)
+
+    async def _tool_provider_claims(self, args: dict) -> str:
+        """Individual claims for a specific provider."""
+        npi = args.get("npi", "")
+        risk_level = args.get("risk_level")
+        limit = int(args.get("limit", 30))
+
+        provider = (await self.session.execute(
+            select(Provider).where(Provider.npi == npi)
+        )).scalar_one_or_none()
+        if not provider:
+            return json.dumps({"error": f"Provider with NPI {npi} not found"})
+
+        prov_info = {
+            "npi": provider.npi, "name": provider.name,
+            "specialty": provider.specialty, "oig_excluded": provider.oig_excluded,
+        }
+
+        claims = []
+        # Medical claims where provider is the billing provider
+        med_q = (select(MedicalClaim)
+                 .where(MedicalClaim.provider_id == provider.id)
+                 .order_by(MedicalClaim.service_date.desc()).limit(500))
+        for c in (await self.session.execute(med_q)).scalars():
+            rs = (await self.session.execute(
+                select(RiskScore.risk_level, RiskScore.total_score)
+                .where(RiskScore.claim_id == c.claim_id)
+            )).first()
+            rl = rs[0] if rs else "unscored"
+            if risk_level and rl != risk_level:
+                continue
+            # Count triggered rules
+            rule_count = (await self.session.execute(
+                select(func.count()).select_from(RuleResult)
+                .where(RuleResult.claim_id == c.claim_id, RuleResult.triggered == True)
+            )).scalar() or 0
+            claims.append({
+                "claim_id": c.claim_id, "type": "medical",
+                "service_date": str(c.service_date), "cpt_code": c.cpt_code,
+                "diagnosis_primary": c.diagnosis_code_primary,
+                "amount_billed": float(c.amount_billed),
+                "amount_paid": float(c.amount_paid) if c.amount_paid else 0.0,
+                "risk_level": rl,
+                "risk_score": float(rs[1]) if rs else 0.0,
+                "rules_triggered": rule_count,
+            })
+
+        # Pharmacy claims where provider is the prescriber
+        rx_q = (select(PharmacyClaim)
+                .where(PharmacyClaim.prescriber_id == provider.id)
+                .order_by(PharmacyClaim.fill_date.desc()).limit(500))
+        for c in (await self.session.execute(rx_q)).scalars():
+            rs = (await self.session.execute(
+                select(RiskScore.risk_level, RiskScore.total_score)
+                .where(RiskScore.claim_id == c.claim_id)
+            )).first()
+            rl = rs[0] if rs else "unscored"
+            if risk_level and rl != risk_level:
+                continue
+            claims.append({
+                "claim_id": c.claim_id, "type": "pharmacy",
+                "fill_date": str(c.fill_date), "drug_name": c.drug_name,
+                "amount_billed": float(c.amount_billed),
+                "amount_paid": float(c.amount_paid) if c.amount_paid else 0.0,
+                "risk_level": rl,
+                "risk_score": float(rs[1]) if rs else 0.0,
+            })
+
+        claims = claims[:limit]
+        total_billed = sum(c["amount_billed"] for c in claims)
+        total_paid = sum(c["amount_paid"] for c in claims)
+        flagged = sum(1 for c in claims if c["risk_level"] in ("high", "critical"))
+
+        return json.dumps({
+            "provider": prov_info,
+            "summary": {
+                "total_claims": len(claims), "total_billed": round(total_billed, 2),
+                "total_paid": round(total_paid, 2), "flagged_claims": flagged,
+            },
+            "claims": claims,
+        }, default=str)
+
+    async def _tool_case_notes(self, args: dict) -> str:
+        """Investigator notes and evidence on a case."""
+        case_id = args.get("case_id", "")
+        limit = int(args.get("limit", 20))
+
+        q = select(InvestigationCase).where(InvestigationCase.case_id == case_id)
+        if self.workspace_id is not None:
+            q = q.where(InvestigationCase.workspace_id == self.workspace_id)
+        case = (await self.session.execute(q)).scalar_one_or_none()
+        if not case:
+            return json.dumps({"error": f"Case {case_id} not found"})
+
+        notes_q = (select(CaseNote).where(CaseNote.case_id == case.id)
+                   .order_by(CaseNote.created_at.desc()).limit(limit))
+        notes = [
+            {"author": n.author, "content": n.content, "created_at": n.created_at.isoformat()}
+            for n in (await self.session.execute(notes_q)).scalars()
+        ]
+
+        evidence_q = (select(CaseEvidence).where(CaseEvidence.case_id == case.id)
+                      .order_by(CaseEvidence.created_at.desc()).limit(limit))
+        evidence = [
+            {"evidence_type": e.evidence_type, "title": e.title,
+             "content": e.content, "created_at": e.created_at.isoformat()}
+            for e in (await self.session.execute(evidence_q)).scalars()
+        ]
+
+        return json.dumps({
+            "case_id": case_id,
+            "notes": notes, "notes_count": len(notes),
+            "evidence": evidence, "evidence_count": len(evidence),
+        })
+
+    async def _tool_cases_by_date(self, args: dict) -> str:
+        """Filter cases by date range with financial data."""
+        date_from_str = args.get("date_from")
+        date_to_str = args.get("date_to")
+        date_field_name = args.get("date_field", "created_at")
+        risk_level = args.get("risk_level")
+        status = args.get("status")
+        limit = int(args.get("limit", 30))
+
+        # Resolve the date column
+        valid_fields = {"created_at": InvestigationCase.created_at,
+                        "resolved_at": InvestigationCase.resolved_at,
+                        "closed_at": InvestigationCase.closed_at}
+        date_col = valid_fields.get(date_field_name, InvestigationCase.created_at)
+
+        q = select(InvestigationCase)
+        if date_from_str:
+            q = q.where(date_col >= date_from_str)
+        if date_to_str:
+            q = q.where(date_col <= date_to_str)
+        if risk_level:
+            q = q.where(InvestigationCase.risk_level == risk_level)
+        if status:
+            q = q.where(InvestigationCase.status == status)
+        if self.workspace_id is not None:
+            q = q.where(InvestigationCase.workspace_id == self.workspace_id)
+        q = q.order_by(date_col.desc()).limit(limit)
+
+        rows = []
+        for c in (await self.session.execute(q)).scalars():
+            billed, paid = 0.0, 0.0
+            med = (await self.session.execute(
+                select(MedicalClaim.amount_billed, MedicalClaim.amount_paid)
+                .where(MedicalClaim.claim_id == c.claim_id)
+            )).first()
+            if med:
+                billed = float(med.amount_billed) if med.amount_billed else 0.0
+                paid = float(med.amount_paid) if med.amount_paid else 0.0
+            else:
+                rx = (await self.session.execute(
+                    select(PharmacyClaim.amount_billed, PharmacyClaim.amount_paid)
+                    .where(PharmacyClaim.claim_id == c.claim_id)
+                )).first()
+                if rx:
+                    billed = float(rx.amount_billed) if rx.amount_billed else 0.0
+                    paid = float(rx.amount_paid) if rx.amount_paid else 0.0
+
+            fraud_identified = billed if c.risk_level in ("high", "critical") else 0.0
+            rows.append({
+                "case_id": c.case_id, "claim_id": c.claim_id,
+                "risk_level": c.risk_level, "risk_score": float(c.risk_score),
+                "status": c.status, "priority": c.priority,
+                "amount_billed": round(billed, 2), "amount_paid": round(paid, 2),
+                "savings_prevented": round(billed - paid, 2),
+                "fraud_identified": round(fraud_identified, 2),
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "resolved_at": c.resolved_at.isoformat() if c.resolved_at else None,
+            })
+
+        return json.dumps({
+            "date_range": {"from": date_from_str, "to": date_to_str, "field": date_field_name},
+            "matching_cases": len(rows),
+            "cases": rows,
+        })
+
+    async def _tool_sla_status(self, args: dict) -> str:
+        """SLA tracking — overdue, at-risk, and on-track cases."""
+        sla_filter = args.get("status")  # "overdue", "at_risk", "on_track"
+        risk_level = args.get("risk_level")
+        limit = int(args.get("limit", 20))
+
+        from datetime import datetime as dt, timezone
+        now = dt.now(timezone.utc)
+
+        q = (select(InvestigationCase)
+             .where(InvestigationCase.status.in_(["open", "under_review", "escalated"]))
+             .where(InvestigationCase.sla_deadline.isnot(None)))
+        if risk_level:
+            q = q.where(InvestigationCase.risk_level == risk_level)
+        if self.workspace_id is not None:
+            q = q.where(InvestigationCase.workspace_id == self.workspace_id)
+        q = q.order_by(InvestigationCase.sla_deadline.asc()).limit(200)
+
+        rows = []
+        for c in (await self.session.execute(q)).scalars():
+            deadline = c.sla_deadline
+            if deadline.tzinfo is None:
+                from datetime import timezone as tz
+                deadline = deadline.replace(tzinfo=tz.utc)
+            delta = deadline - now
+            days_remaining = delta.total_seconds() / 86400
+
+            if days_remaining < 0:
+                bucket = "overdue"
+            elif days_remaining <= 2:
+                bucket = "at_risk"
+            else:
+                bucket = "on_track"
+
+            if sla_filter and bucket != sla_filter:
+                continue
+
+            rows.append({
+                "case_id": c.case_id, "risk_level": c.risk_level,
+                "status": c.status, "priority": c.priority,
+                "assigned_to": c.assigned_to,
+                "sla_deadline": c.sla_deadline.isoformat(),
+                "days_remaining": round(days_remaining, 1),
+                "sla_status": bucket,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            })
+
+        rows = rows[:limit]
+        summary = {
+            "overdue": sum(1 for r in rows if r["sla_status"] == "overdue"),
+            "at_risk": sum(1 for r in rows if r["sla_status"] == "at_risk"),
+            "on_track": sum(1 for r in rows if r["sla_status"] == "on_track"),
+        }
+
+        return json.dumps({"summary": summary, "cases": rows, "total": len(rows)})
+
+    async def _tool_resolution_metrics(self, args: dict) -> str:
+        """Case resolution outcomes and performance metrics."""
+        risk_level = args.get("risk_level")
+        date_from = args.get("date_from")
+        date_to = args.get("date_to")
+
+        q = select(InvestigationCase).where(
+            InvestigationCase.status.in_(["resolved", "closed"])
+        )
+        if risk_level:
+            q = q.where(InvestigationCase.risk_level == risk_level)
+        if date_from:
+            q = q.where(InvestigationCase.resolved_at >= date_from)
+        if date_to:
+            q = q.where(InvestigationCase.resolved_at <= date_to)
+        if self.workspace_id is not None:
+            q = q.where(InvestigationCase.workspace_id == self.workspace_id)
+
+        cases = list((await self.session.execute(q)).scalars())
+        if not cases:
+            return json.dumps({"total_cases": 0, "message": "No resolved/closed cases found"})
+
+        # Compute resolution days
+        resolution_days = []
+        for c in cases:
+            if c.resolved_at and c.created_at:
+                days = (c.resolved_at - c.created_at).total_seconds() / 86400
+                resolution_days.append((c, days))
+
+        # By risk level
+        by_risk: dict[str, dict] = {}
+        for c in cases:
+            rl = c.risk_level
+            if rl not in by_risk:
+                by_risk[rl] = {"count": 0, "total_recovery": 0.0, "resolution_days": []}
+            by_risk[rl]["count"] += 1
+            by_risk[rl]["total_recovery"] += float(c.recovery_amount) if c.recovery_amount else 0.0
+            if c.resolved_at and c.created_at:
+                by_risk[rl]["resolution_days"].append(
+                    (c.resolved_at - c.created_at).total_seconds() / 86400)
+
+        for rl, data in by_risk.items():
+            days_list = data.pop("resolution_days")
+            data["avg_resolution_days"] = round(sum(days_list) / len(days_list), 1) if days_list else None
+
+        # By resolution path
+        by_path: dict[str, dict] = {}
+        for c in cases:
+            path = c.resolution_path or "unspecified"
+            if path not in by_path:
+                by_path[path] = {"count": 0, "total_recovery": 0.0}
+            by_path[path]["count"] += 1
+            by_path[path]["total_recovery"] += float(c.recovery_amount) if c.recovery_amount else 0.0
+
+        total_recovery = sum(float(c.recovery_amount) for c in cases if c.recovery_amount)
+        with_recovery = sum(1 for c in cases if c.recovery_amount and float(c.recovery_amount) > 0)
+        all_days = [d for _, d in resolution_days]
+
+        return json.dumps({
+            "total_cases": len(cases),
+            "total_recovery": round(total_recovery, 2),
+            "recovery_rate": round(with_recovery / len(cases), 3) if cases else 0,
+            "avg_resolution_days": round(sum(all_days) / len(all_days), 1) if all_days else None,
+            "min_resolution_days": round(min(all_days), 1) if all_days else None,
+            "max_resolution_days": round(max(all_days), 1) if all_days else None,
+            "by_risk_level": by_risk,
+            "by_resolution_path": by_path,
+        })
+
+    async def _tool_code_reference(self, args: dict) -> str:
+        """CPT, NDC, or ICD reference lookup."""
+        code_type = args.get("code_type", "").lower()
+        code = args.get("code", "")
+
+        if code_type == "cpt":
+            ref = (await self.session.execute(
+                select(CPTReference).where(CPTReference.cpt_code == code)
+            )).scalar_one_or_none()
+            if not ref:
+                return json.dumps({"error": f"CPT code {code} not found"})
+            return json.dumps({
+                "code_type": "cpt", "cpt_code": ref.cpt_code,
+                "description": ref.description, "category": ref.category,
+                "facility_price": float(ref.facility_price) if ref.facility_price else None,
+                "non_facility_price": float(ref.non_facility_price) if ref.non_facility_price else None,
+                "rvu_work": float(ref.rvu_work) if ref.rvu_work else None,
+                "rvu_practice": float(ref.rvu_practice) if ref.rvu_practice else None,
+                "rvu_malpractice": float(ref.rvu_malpractice) if ref.rvu_malpractice else None,
+                "bundled_codes": ref.bundled_codes,
+                "is_outpatient_typical": ref.is_outpatient_typical,
+            })
+
+        elif code_type == "ndc":
+            ref = (await self.session.execute(
+                select(NDCReference).where(NDCReference.ndc_code == code)
+            )).scalar_one_or_none()
+            if not ref:
+                return json.dumps({"error": f"NDC code {code} not found"})
+            return json.dumps({
+                "code_type": "ndc", "ndc_code": ref.ndc_code,
+                "proprietary_name": ref.proprietary_name,
+                "nonproprietary_name": ref.nonproprietary_name,
+                "dosage_form": ref.dosage_form, "route": ref.route,
+                "dea_schedule": ref.dea_schedule,
+                "therapeutic_class": ref.therapeutic_class,
+                "avg_wholesale_price": float(ref.avg_wholesale_price) if ref.avg_wholesale_price else None,
+                "unit_price": float(ref.unit_price) if ref.unit_price else None,
+                "generic_available": ref.generic_available,
+                "generic_ndc": ref.generic_ndc,
+                "generic_price": float(ref.generic_price) if ref.generic_price else None,
+            })
+
+        elif code_type == "icd":
+            ref = (await self.session.execute(
+                select(ICDReference).where(ICDReference.icd_code == code)
+            )).scalar_one_or_none()
+            if not ref:
+                return json.dumps({"error": f"ICD code {code} not found"})
+            return json.dumps({
+                "code_type": "icd", "icd_code": ref.icd_code,
+                "description": ref.description, "category": ref.category,
+                "is_billable": ref.is_billable,
+                "valid_cpt_codes": ref.valid_cpt_codes,
+                "gender_specific": ref.gender_specific,
+                "age_range_min": ref.age_range_min,
+                "age_range_max": ref.age_range_max,
+            })
+
+        return json.dumps({"error": f"Unknown code_type: {code_type}. Use 'cpt', 'ndc', or 'icd'."})
+
+    async def _tool_audit_trail(self, args: dict) -> str:
+        """Search audit log entries."""
+        resource_id = args.get("resource_id")
+        resource_type = args.get("resource_type")
+        event_type = args.get("event_type")
+        actor = args.get("actor")
+        limit = int(args.get("limit", 20))
+
+        q = select(AuditLog).order_by(AuditLog.created_at.desc())
+        if resource_id:
+            q = q.where(AuditLog.resource_id == resource_id)
+        if resource_type:
+            q = q.where(AuditLog.resource_type == resource_type)
+        if event_type:
+            q = q.where(AuditLog.event_type == event_type)
+        if actor:
+            q = q.where(AuditLog.actor == actor)
+        q = q.limit(limit)
+
+        events = []
+        for e in (await self.session.execute(q)).scalars():
+            events.append({
+                "event_id": e.event_id,
+                "event_type": e.event_type,
+                "actor": e.actor,
+                "action": e.action,
+                "resource_type": e.resource_type,
+                "resource_id": e.resource_id,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            })
+
+        return json.dumps({"events": events, "total_events": len(events)})
+
     def _parse_tool_call(self, text: str) -> tuple[str, dict] | None:
         match = re.search(r'\{[^{}]*"tool"\s*:\s*"[^"]+?"[^{}]*\}', text)
         if match:
@@ -1373,6 +1920,14 @@ class AgentService:
                 "- 'tell me about CASE-XXXX' → query_case_detail\n"
                 "- 'what rules triggered' → query_rules\n"
                 "- 'overview/stats' → query_pipeline_stats\n"
+                "- 'claims for member/patient X' → query_member_claims\n"
+                "- 'claims from provider/doctor X' or 'provider billing' → query_provider_claims\n"
+                "- 'notes/evidence on case X' or 'investigation history' → query_case_notes\n"
+                "- 'cases from last week/month' or any date range → query_cases_by_date\n"
+                "- 'overdue cases' or 'SLA status/deadline' → query_sla_status\n"
+                "- 'resolution rate/time to resolve/recovery rate' → query_resolution_metrics\n"
+                "- 'what is CPT/NDC/ICD code X' or pricing benchmark → lookup_code_reference\n"
+                "- 'who changed this case' or 'audit trail' → query_audit_trail\n"
                 f"{ws_note}{tier_note}\n\n{TOOL_DEFINITIONS}"
             )
 
