@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -59,16 +60,20 @@ export function Sidebar() {
     <aside className="w-64 bg-surface-1 border-r border-white/[0.06] text-t-primary flex flex-col h-screen shrink-0">
       {/* Logo */}
       <div className="p-5 border-b border-white/[0.06]">
-        <div className="flex items-center gap-1.5">
-          <h1 className="text-lg font-bold tracking-tight text-t-primary">
-            Arq
-          </h1>
-          <span className="text-lg font-bold tracking-tight text-arq-blue-400">
-            AI
-          </span>
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-arq-lime-400 -mt-2" />
+        <h1 className="text-xl font-bold tracking-tight text-t-primary">
+          Arq<span className="text-arq-blue-400">FWA</span>
+        </h1>
+        <div className="flex items-center gap-1.5 mt-1">
+          <span className="text-[11px] text-t-muted">by</span>
+          <Image
+            src="/logo.png"
+            alt="ArqAI"
+            width={60}
+            height={19}
+            className="opacity-90"
+          />
         </div>
-        <p className="text-[11px] text-t-muted mt-0.5 tracking-wide">
+        <p className="text-[11px] text-t-muted mt-1 tracking-wide">
           FWA Detection &amp; Prevention
         </p>
       </div>
