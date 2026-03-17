@@ -659,6 +659,144 @@ export interface RAGFeedbackItem {
   created_at: string | null;
 }
 
+// ── Investigators ──
+
+export interface InvestigatorSummary {
+  investigator_id: string;
+  name: string;
+  email: string | null;
+  specialty: string;
+  seniority: string;
+  active_cases: number;
+  max_caseload: number;
+  utilization: number;
+  is_available: boolean;
+}
+
+export interface AssignmentRuleSummary {
+  rule_id: string;
+  name: string;
+  description: string | null;
+  priority: number;
+  conditions: Record<string, unknown>;
+  strategy: string;
+  target_filter: Record<string, unknown>;
+  is_enabled: boolean;
+  workspace_id: number | null;
+  created_at: string | null;
+}
+
+export const investigators = {
+  list: (workspaceId?: number | null) => {
+    const qs = new URLSearchParams();
+    if (workspaceId) qs.set("workspace_id", String(workspaceId));
+    const q = qs.toString();
+    return fetchAPI<{ investigators: InvestigatorSummary[]; total: number }>(`/investigators${q ? `?${q}` : ""}`);
+  },
+  create: (body: { name: string; email?: string; specialty?: string; seniority?: string; max_caseload?: number; workspace_id?: number }) =>
+    fetchAPI<InvestigatorSummary>("/investigators", { method: "POST", body: JSON.stringify(body) }),
+  detail: (id: string) => fetchAPI<InvestigatorSummary & { active_cases: number }>(`/investigators/${id}`),
+  update: (id: string, body: Record<string, unknown>) =>
+    fetchAPI<InvestigatorSummary>(`/investigators/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  delete: (id: string) => fetch(`${API_BASE}/investigators/${id}`, { method: "DELETE" }),
+  workload: (workspaceId?: number | null) => {
+    const qs = new URLSearchParams();
+    if (workspaceId) qs.set("workspace_id", String(workspaceId));
+    const q = qs.toString();
+    return fetchAPI<{ workload: InvestigatorSummary[] }>(`/investigators/workload${q ? `?${q}` : ""}`);
+  },
+  rules: () => fetchAPI<{ rules: AssignmentRuleSummary[]; total: number }>("/investigators/rules/list"),
+  createRule: (body: Record<string, unknown>) =>
+    fetchAPI<AssignmentRuleSummary>("/investigators/rules", { method: "POST", body: JSON.stringify(body) }),
+  updateRule: (ruleId: string, body: Record<string, unknown>) =>
+    fetchAPI<AssignmentRuleSummary>(`/investigators/rules/${ruleId}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteRule: (ruleId: string) => fetch(`${API_BASE}/investigators/rules/${ruleId}`, { method: "DELETE" }),
+};
+
+// ── Notifications ──
+
+export interface NotificationItem {
+  notification_id: string;
+  recipient: string;
+  notification_type: string;
+  title: string;
+  body: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  is_read: boolean;
+  created_at: string | null;
+  read_at: string | null;
+}
+
+export const notifications = {
+  list: (params?: { is_read?: boolean; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.is_read !== undefined) qs.set("is_read", String(params.is_read));
+    qs.set("limit", String(params?.limit || 50));
+    qs.set("offset", String(params?.offset || 0));
+    return fetchAPI<{ notifications: NotificationItem[]; total: number }>(`/notifications?${qs}`);
+  },
+  unreadCount: () => fetchAPI<{ unread_count: number }>("/notifications/unread-count"),
+  markRead: (id: string) => fetchAPI<{ status: string }>(`/notifications/${id}/read`, { method: "PUT" }),
+  markAllRead: () => fetchAPI<{ marked_read: number }>("/notifications/mark-all-read", { method: "PUT" }),
+  preferences: () => fetchAPI<{ preferences: Record<string, unknown> }>("/notifications/preferences"),
+  updatePreferences: (preferences: Record<string, unknown>) =>
+    fetchAPI<{ preferences: Record<string, unknown> }>("/notifications/preferences", { method: "PUT", body: JSON.stringify({ preferences }) }),
+};
+
+// ── Ingestion ──
+
+export interface DataSourceSummary {
+  source_id: string;
+  name: string;
+  source_type: string;
+  claim_type: string;
+  connection_config: Record<string, unknown>;
+  field_mapping: Record<string, unknown>;
+  polling_interval_seconds: number;
+  is_enabled: boolean;
+  auto_run_pipeline: boolean;
+  workspace_id: number | null;
+  last_polled_at: string | null;
+  created_at: string | null;
+}
+
+export interface IngestionRunItem {
+  run_id: string;
+  data_source_id: number;
+  status: string;
+  rows_found: number;
+  rows_ingested: number;
+  rows_skipped: number;
+  error_count: number;
+  errors: Record<string, unknown> | null;
+  batch_id: string | null;
+  pipeline_job_id: string | null;
+  duration_seconds: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export const ingestion = {
+  sources: () => fetchAPI<{ sources: DataSourceSummary[]; total: number }>("/ingestion/sources"),
+  createSource: (body: Record<string, unknown>) =>
+    fetchAPI<DataSourceSummary>("/ingestion/sources", { method: "POST", body: JSON.stringify(body) }),
+  sourceDetail: (id: string) => fetchAPI<DataSourceSummary>(`/ingestion/sources/${id}`),
+  updateSource: (id: string, body: Record<string, unknown>) =>
+    fetchAPI<DataSourceSummary>(`/ingestion/sources/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteSource: (id: string) => fetch(`${API_BASE}/ingestion/sources/${id}`, { method: "DELETE" }),
+  testConnection: (id: string) =>
+    fetchAPI<{ status: string; message: string; sample_rows: Record<string, unknown>[] }>(`/ingestion/sources/${id}/test`, { method: "POST" }),
+  pollNow: (id: string) =>
+    fetchAPI<IngestionRunItem>(`/ingestion/sources/${id}/poll-now`, { method: "POST" }),
+  runs: (sourceId?: string, limit: number = 50) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    if (sourceId) qs.set("source_id", sourceId);
+    return fetchAPI<{ runs: IngestionRunItem[]; total: number }>(`/ingestion/runs?${qs}`);
+  },
+  runDetail: (runId: string) => fetchAPI<IngestionRunItem>(`/ingestion/runs/${runId}`),
+};
+
 export const governance = {
   health: () => fetchAPI<GovernanceHealth>("/governance/health"),
   sync: () => fetchAPI<{ status: string }>("/governance/sync", { method: "POST" }),

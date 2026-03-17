@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 60
     encryption_key: str = ""
 
+    # Ingestion
+    watched_folder_base: str = "/data/incoming"
+
+    # SMTP (optional, for email notifications)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_from: str = "noreply@arqai.local"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")

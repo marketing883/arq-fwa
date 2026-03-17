@@ -28,6 +28,9 @@ from app.api.workspaces import router as workspaces_router
 from app.api.providers import router as providers_router
 from app.api.metrics import router as metrics_router
 from app.api.governance import router as governance_router
+from app.api.investigators import router as investigators_router
+from app.api.notifications import router as notifications_router
+from app.api.ingestion import router as ingestion_router
 
 
 @asynccontextmanager
@@ -110,6 +113,9 @@ app.include_router(workspaces_router)
 app.include_router(providers_router)
 app.include_router(metrics_router)
 app.include_router(governance_router)
+app.include_router(investigators_router)
+app.include_router(notifications_router)
+app.include_router(ingestion_router)
 
 
 # ── Health check (expanded) ──────────────────────────────────────────────────

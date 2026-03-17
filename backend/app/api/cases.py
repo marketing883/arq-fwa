@@ -340,6 +340,17 @@ async def update_case_status(
         actor=ctx.actor,
     )
 
+    # Notify assignee of status change
+    try:
+        from app.services.notification_service import NotificationService
+
+        notification_svc = NotificationService(db)
+        await notification_svc.notify_case_status_changed(
+            case, old_status, ctx.actor
+        )
+    except Exception:
+        pass  # Best-effort
+
     await db.flush()
 
     # Return full detail
@@ -374,6 +385,17 @@ async def assign_case(
             "new_assigned_to": body.assigned_to,
         },
     )
+
+    # Notify new assignee
+    try:
+        from app.services.notification_service import NotificationService
+
+        notification_svc = NotificationService(db)
+        await notification_svc.notify_case_assigned(
+            case, body.assigned_to, ctx.actor
+        )
+    except Exception:
+        pass  # Best-effort
 
     await db.flush()
 

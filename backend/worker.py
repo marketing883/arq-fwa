@@ -1,5 +1,6 @@
 """
-ARQ worker entrypoint — processes pipeline jobs from the Redis queue.
+ARQ worker entrypoint — processes pipeline jobs from the Redis queue,
+runs the ingestion scheduler, and monitors SLA deadlines.
 
 Run with: python worker.py
 """
@@ -8,9 +9,10 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime, timedelta
 
 import redis.asyncio as aioredis
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -156,6 +158,24 @@ async def process_pipeline_job(job_data: dict, engine, SessionMaker):
 
             await db.commit()
 
+            # Notify about pipeline completion
+            try:
+                from app.services.notification_service import NotificationService
+
+                async with SessionMaker() as notify_db:
+                    notification_svc = NotificationService(notify_db)
+                    await notification_svc.notify_pipeline_completed(
+                        {
+                            "batch_id": batch_id,
+                            "total_claims": total,
+                            "cases_created": len(new_cases),
+                        },
+                        ws_id,
+                    )
+                    await notify_db.commit()
+            except Exception as exc:
+                logger.warning("Pipeline notification failed: %s", exc)
+
             await update_job_status(
                 job_id, status="completed", phase="done", progress=100,
                 claims_processed=total,
@@ -178,19 +198,10 @@ async def process_pipeline_job(job_data: dict, engine, SessionMaker):
             await db.rollback()
 
 
-async def main():
-    """Main worker loop — polls Redis queue for pipeline jobs."""
-    from app.config import settings
-
-    engine = create_async_engine(settings.database_url, echo=False)
-    SessionMaker = async_sessionmaker(engine, expire_on_commit=False)
-
-    r = aioredis.from_url(settings.redis_url, decode_responses=True)
-    logger.info("Worker started, listening on arqai:pipeline:queue")
-
+async def pipeline_worker_loop(engine, SessionMaker, r):
+    """Main pipeline worker loop — polls Redis queue for pipeline jobs."""
     while True:
         try:
-            # Block-pop from queue (5 second timeout)
             result = await r.brpop("arqai:pipeline:queue", timeout=5)
             if result is None:
                 continue
@@ -201,6 +212,145 @@ async def main():
         except Exception as exc:
             logger.error("Worker loop error: %s", exc, exc_info=True)
             await asyncio.sleep(1)
+
+
+async def ingestion_scheduler(engine, SessionMaker):
+    """Periodic scheduler that polls data sources on their configured intervals."""
+    from app.models.data_source import DataSource
+    from app.services.ingestion_service import IngestionService
+    from sqlalchemy import func as sqlfunc
+
+    logger.info("Ingestion scheduler started")
+
+    while True:
+        try:
+            async with SessionMaker() as db:
+                now = datetime.utcnow()
+                # Find enabled sources due for polling
+                result = await db.execute(
+                    select(DataSource).where(
+                        DataSource.is_enabled == True,
+                        or_(
+                            DataSource.last_polled_at.is_(None),
+                            DataSource.last_polled_at
+                            + sqlfunc.make_interval(
+                                secs=DataSource.polling_interval_seconds
+                            )
+                            < now,
+                        ),
+                    )
+                )
+                sources = list(result.scalars())
+
+                for source in sources:
+                    try:
+                        svc = IngestionService(db)
+                        run = await svc.poll_source(source)
+                        logger.info(
+                            "Ingestion %s for %s: %s (rows=%d)",
+                            run.run_id,
+                            source.name,
+                            run.status,
+                            run.rows_ingested,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Ingestion error for source %s: %s",
+                            source.source_id,
+                            exc,
+                            exc_info=True,
+                        )
+
+                await db.commit()
+        except Exception as exc:
+            logger.error("Ingestion scheduler error: %s", exc, exc_info=True)
+
+        await asyncio.sleep(30)
+
+
+async def sla_monitor(engine, SessionMaker):
+    """Check for SLA warnings and breaches every 15 minutes."""
+    from app.models.case import InvestigationCase
+    from app.models.notification import Notification
+    from app.services.notification_service import NotificationService
+
+    logger.info("SLA monitor started")
+
+    while True:
+        try:
+            async with SessionMaker() as db:
+                now = datetime.utcnow()
+                warning_threshold = now + timedelta(hours=24)
+
+                # Cases approaching SLA (within 24 hours)
+                approaching = await db.execute(
+                    select(InvestigationCase).where(
+                        InvestigationCase.status.in_(
+                            ["open", "under_review", "escalated"]
+                        ),
+                        InvestigationCase.sla_deadline.between(
+                            now, warning_threshold
+                        ),
+                    )
+                )
+
+                notification_svc = NotificationService(db)
+
+                for case in approaching.scalars():
+                    # Deduplicate: check if warning already sent in last 24h
+                    existing = await db.execute(
+                        select(Notification.id).where(
+                            Notification.resource_id == case.case_id,
+                            Notification.notification_type == "sla_warning",
+                            Notification.created_at > now - timedelta(hours=24),
+                        )
+                    )
+                    if not existing.scalar_one_or_none():
+                        await notification_svc.notify_sla_warning(case)
+
+                # Cases that have breached SLA
+                breached = await db.execute(
+                    select(InvestigationCase).where(
+                        InvestigationCase.status.in_(
+                            ["open", "under_review", "escalated"]
+                        ),
+                        InvestigationCase.sla_deadline < now,
+                    )
+                )
+
+                for case in breached.scalars():
+                    existing = await db.execute(
+                        select(Notification.id).where(
+                            Notification.resource_id == case.case_id,
+                            Notification.notification_type == "sla_breached",
+                            Notification.created_at > now - timedelta(hours=24),
+                        )
+                    )
+                    if not existing.scalar_one_or_none():
+                        await notification_svc.notify_sla_breached(case)
+
+                await db.commit()
+        except Exception as exc:
+            logger.error("SLA monitor error: %s", exc, exc_info=True)
+
+        await asyncio.sleep(900)  # every 15 minutes
+
+
+async def main():
+    """Main worker — runs pipeline loop, ingestion scheduler, and SLA monitor."""
+    from app.config import settings
+
+    engine = create_async_engine(settings.database_url, echo=False)
+    SessionMaker = async_sessionmaker(engine, expire_on_commit=False)
+
+    r = aioredis.from_url(settings.redis_url, decode_responses=True)
+    logger.info("Worker started with pipeline loop, ingestion scheduler, and SLA monitor")
+
+    await asyncio.gather(
+        pipeline_worker_loop(engine, SessionMaker, r),
+        ingestion_scheduler(engine, SessionMaker),
+        sla_monitor(engine, SessionMaker),
+    )
 
 
 if __name__ == "__main__":

@@ -123,6 +123,31 @@ class CaseManager:
         if cases_created:
             await self.session.flush()
 
+        # Auto-assign cases to investigators
+        try:
+            from app.services.assignment_service import AssignmentService
+
+            assignment_svc = AssignmentService(self.session)
+            for case in cases_created:
+                assignee = await assignment_svc.auto_assign(case)
+                if assignee:
+                    case.assigned_to = assignee
+        except Exception:
+            pass  # Assignment is best-effort; don't block case creation
+
+        # Notify about new cases
+        try:
+            from app.services.notification_service import NotificationService
+
+            notification_svc = NotificationService(self.session)
+            for case in cases_created:
+                if case.assigned_to:
+                    await notification_svc.notify_case_assigned(
+                        case, case.assigned_to, "system"
+                    )
+        except Exception:
+            pass  # Notifications are best-effort
+
         # Generate evidence bundles and audit entries
         for case in cases_created:
             await self.audit.log_case_created(

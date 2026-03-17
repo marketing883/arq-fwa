@@ -14,6 +14,9 @@ import {
   Building2,
   Play,
   Eye,
+  Users,
+  Database,
+  Bell,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 import { useState, useRef, useEffect } from "react";
@@ -28,6 +31,9 @@ const navItems = [
   { href: "/agents", label: "AI Assistant", icon: Bot },
   { href: "/pipeline", label: "Pipeline", icon: Play },
   { href: "/upload", label: "Upload Data", icon: Upload },
+  { href: "/investigators", label: "Investigators", icon: Users },
+  { href: "/data-sources", label: "Data Sources", icon: Database },
+  { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 
 export function Sidebar() {
