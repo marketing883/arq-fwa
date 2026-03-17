@@ -850,6 +850,22 @@ class AgentService:
                 pass
         return None
 
+    # Regex to strip leaked tool-call markup from final responses
+    _TOOL_CALL_ARTIFACTS_RE = re.compile(
+        r'<function_calls>.*?</function_calls>\s*'    # XML-style tool blocks
+        r'|<function_calls>.*'                         # unclosed tag (rest of text)
+        r'|\{[^{}]*"tool"\s*:\s*"[^"]*"[^{}]*\}\s*',  # bare JSON tool calls
+        re.DOTALL,
+    )
+
+    @staticmethod
+    def _clean_response(text: str) -> str:
+        """Strip any leaked tool-call artifacts from a user-facing response."""
+        cleaned = AgentService._TOOL_CALL_ARTIFACTS_RE.sub('', text).strip()
+        # Collapse runs of blank lines left behind
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        return cleaned
+
     async def _react_loop(self, message: str, system_prompt: str, history: list[dict] | None = None) -> tuple[str, list[str]]:
         sources: list[str] = []
         original_question = message
@@ -862,7 +878,7 @@ class AgentService:
                 return "", sources
             tool_call = self._parse_tool_call(response)
             if tool_call is None:
-                return response, sources
+                return self._clean_response(response), sources
             tool_name, args = tool_call
             logger.info("ReAct %d: tool=%s args=%s", i + 1, tool_name, args)
             tool_result = await self._execute_tool(tool_name, args)
@@ -881,8 +897,9 @@ class AgentService:
                 f"Format with markdown, bold key figures, use tables if showing multiple items.\n"
                 f"4. If you still need MORE data to answer, call another tool. "
                 f"But NEVER say 'I cannot' — use a tool instead.\n"
+                f"5. Do NOT show your tool calls in your response. Just present the final answer.\n"
             )
-        return response or "", sources
+        return self._clean_response(response or ""), sources
 
     # ------------------------------------------------------------------
     # Case context
@@ -1384,7 +1401,7 @@ class AgentService:
                         execution_results={"response_preview": response[:500],
                                            "sources": sources},
                         lineage_node_ids=lineage_node_ids,
-                        model_versions={"slm": self.model},
+                        model_versions={"llm": self.model},
                     )
 
                 # ── TAO: Create audit receipt for chat completion ──
@@ -1480,7 +1497,7 @@ class AgentService:
             yield {"token": token, "done": False}
 
         if full:
-            full = linkify_citations(self._strip_think_tags(full))
+            full = linkify_citations(self._clean_response(self._strip_think_tags(full)))
             yield {"done": True, "response": full, "sources_cited": sources,
                    "model_used": self.model, "confidence": "high" if sources else "medium"}
         else:
