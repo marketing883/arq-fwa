@@ -118,11 +118,13 @@ Available tools (respond with EXACTLY this JSON format to use one):
   → fraud_identified = amount_billed if risk is high/critical, else 0 (matches dashboard "Total Fraud Identified").
   → Filters: risk_level, status. Sort: "risk_score" (default).
 
-{"tool": "query_cases_financial", "args": {"min_savings": 1000, "min_fraud_amount": 0, "risk_level": "critical", "status": "open", "limit": 50}}
+{"tool": "query_cases_financial", "args": {"min_savings": 0, "min_fraud_amount": 0, "risk_level": "critical", "status": "open", "sort_by": "fraud_identified", "limit": 50}}
   → Returns: per-case financial detail (case_id, amount_billed, amount_paid, savings_prevented, fraud_identified, recovery, risk_level, status).
   → fraud_identified = amount_billed if high/critical risk (matches dashboard "Total Fraud Identified").
   → Use this for ANY per-case financial question: "how many cases saved > $X", "which cases have highest fraud", etc.
+  → sort_by: "fraud_identified" (default), "savings_prevented", "amount_billed", "amount_paid", "risk_score". Always descending.
   → All filter args are optional. Default limit=50.
+  → For "most critical by value" or "highest fraud" questions, use sort_by="fraud_identified" and limit=1.
 
 {"tool": "query_claims_analysis", "args": {"group_by": "risk_level", "min_amount": 0, "claim_type": "medical"}}
   → Returns: aggregated claim-level analysis grouped by a dimension.
@@ -692,8 +694,12 @@ class AgentService:
                 "recovery_amount": float(c.recovery_amount) if c.recovery_amount else 0.0,
             })
 
-        # Sort by savings descending
-        rows.sort(key=lambda r: r["savings_prevented"], reverse=True)
+        # Sort by requested field (descending)
+        sort_field = args.get("sort_by", "fraud_identified")
+        valid_sort_fields = {"fraud_identified", "savings_prevented", "amount_billed", "amount_paid", "risk_score"}
+        if sort_field not in valid_sort_fields:
+            sort_field = "fraud_identified"
+        rows.sort(key=lambda r: r.get(sort_field, 0), reverse=True)
         rows = rows[:limit]
 
         # Compute summary stats
