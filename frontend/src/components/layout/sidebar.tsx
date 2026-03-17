@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -65,12 +64,11 @@ export function Sidebar() {
         </h1>
         <div className="flex items-center gap-1.5 mt-1">
           <span className="text-[11px] text-t-muted">by</span>
-          <Image
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
             src="/logo.png"
             alt="ArqAI"
-            width={60}
-            height={19}
-            className="opacity-90"
+            className="h-4 w-auto opacity-90"
           />
         </div>
         <p className="text-[11px] text-t-muted mt-1 tracking-wide">
